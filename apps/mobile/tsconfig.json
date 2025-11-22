@@ -3,8 +3,14 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "strict": true,
-    "types": ["nativewind/types", "react", "react-native"]
+    "types": [
+      "nativewind/types",
+      "react",
+      "react-native"
+    ]
   },
-  "include": ["app", "expo-env.d.ts", "src"]
+  "include": [
+    "app",
+    "src"
+  ]
 }
-

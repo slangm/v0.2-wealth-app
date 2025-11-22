@@ -8,9 +8,9 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "dev:web": "turbo run dev --filter=web",
-    "dev:mobile": "turbo run dev --filter=mobile",
-    "dev:api": "turbo run dev --filter=api"
+    "dev:web": "turbo run dev --filter=@globalwealth/web",
+    "dev:mobile": "turbo run dev --filter=@globalwealth/mobile",
+    "dev:api": "turbo run dev --filter=@globalwealth/api"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
@@ -18,4 +18,3 @@
     "typescript": "^5.6.3"
   }
 }
-

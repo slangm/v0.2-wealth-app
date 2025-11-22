@@ -5,9 +5,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "resolveJsonModule": true,
-    "module": "ESNext",
+    "module": "CommonJS",
     "moduleResolution": "Node"
   },
   "include": ["src"]
 }
-
