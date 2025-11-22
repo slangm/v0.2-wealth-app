@@ -21,3 +21,13 @@ pnpm dev:api    # start the backend API
 
 Additional documentation for each workspace lives in its respective folder.
 
+---
+
+### Legacy v0.app Deployment Notes
+
+The original prototype was synced directly from v0.app and is still accessible for reference:
+
+- Live demo: **[https://vercel.com/slangms-projects/v0-fintech-app-design](https://vercel.com/slangms-projects/v0-fintech-app-design)**
+- v0 chat: **[https://v0.app/chat/ivH7rvQ7jl0](https://v0.app/chat/ivH7rvQ7jl0)**
+
+If you continue iterating in v0.app, deploy from the v0 interface and Vercel will receive those changes automatically. For the new Turborepo, use the scripts above instead.
