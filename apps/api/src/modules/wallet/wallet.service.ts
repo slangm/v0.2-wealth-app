@@ -4,11 +4,12 @@ import { UsersService } from "../users/users.service"
 import type { WalletRecord, WalletProvider } from "./wallet.entity"
 import { ComplianceService } from "../compliance/compliance.service"
 
-const DEFAULT_NETWORK = process.env.AGENT_NETWORK ?? "base-sepolia"
+const SAFE_NETWORK = process.env.SAFE_NETWORK ?? process.env.AGENT_NETWORK ?? "base-sepolia"
+const GROWTH_NETWORK = process.env.GROWTH_NETWORK ?? "polygon-mainnet"
 
 @Injectable()
 export class WalletService {
-  private readonly wallets = new Map<string, WalletRecord>() // userId -> wallet
+  private readonly wallets = new Map<string, WalletRecord>() // key: userId:role
 
   constructor(
     private readonly users: UsersService,
@@ -16,31 +17,55 @@ export class WalletService {
   ) {}
 
   async ensureUserWallet(userId: string) {
-    const existing = this.wallets.get(userId)
+    const existing = this.getWallet(userId, "safe")
     if (existing) return existing
+    const [safe] = await this.ensureDualWallets(userId)
+    return safe
+  }
+
+  async ensureDualWallets(userId: string) {
+    const existingSafe = this.getWallet(userId, "safe")
+    const existingGrowth = this.getWallet(userId, "growth")
+    if (existingSafe && existingGrowth) return [existingSafe, existingGrowth]
+
     const user = this.users.findById(userId)
     if (!user) {
       throw new Error("User not found")
     }
-    const record: WalletRecord = {
+
+    const safe: WalletRecord = {
       id: randomUUID(),
       userId,
-      address: this.generateDeterministicAddress(userId),
+      role: "safe",
+      address: this.generateDeterministicAddress(`${userId}:safe`),
       provider: this.pickProvider(),
-      network: DEFAULT_NETWORK,
+      network: SAFE_NETWORK,
       createdAt: new Date().toISOString(),
     }
-    this.wallets.set(userId, record)
-    return record
+
+    const growth: WalletRecord = {
+      id: randomUUID(),
+      userId,
+      role: "growth",
+      address: this.generateDeterministicAddress(`${userId}:growth`),
+      provider: this.pickProvider(),
+      network: GROWTH_NETWORK,
+      createdAt: new Date().toISOString(),
+    }
+
+    this.wallets.set(this.key(userId, "safe"), safe)
+    this.wallets.set(this.key(userId, "growth"), growth)
+    return [safe, growth]
   }
 
-  getWallet(userId: string) {
-    return this.wallets.get(userId) ?? null
+  getWallet(userId: string, role: "safe" | "growth" = "safe") {
+    return this.wallets.get(this.key(userId, role)) ?? null
   }
 
   listForUser(userId: string) {
-    const wallet = this.getWallet(userId)
-    return wallet ? [wallet] : []
+    const safe = this.getWallet(userId, "safe")
+    const growth = this.getWallet(userId, "growth")
+    return [safe, growth].filter(Boolean) as WalletRecord[]
   }
 
   canTransact(userId: string) {
@@ -55,5 +80,9 @@ export class WalletService {
   private generateDeterministicAddress(input: string) {
     const hash = createHash("sha256").update(input).digest("hex").slice(0, 40)
     return `0x${hash}`
+  }
+
+  private key(userId: string, role: "safe" | "growth") {
+    return `${userId}:${role}`
   }
 }

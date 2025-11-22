@@ -33,8 +33,42 @@ const boosts = [
   { id: "referrals", label: "Invite friends", delta: 0.5, description: "2 referral streak", active: true },
 ]
 
+export type PortfolioTargets = {
+  safePct: number
+  growthPct: number
+  updatedAt: string
+}
+
+export type DeploymentStatus =
+  | "AWAIT_BRIDGE"
+  | "BASE_EXEC"
+  | "BRIDGING"
+  | "POLYGON_READY"
+  | "POLY_EXEC"
+  | "DONE"
+  | "FAILED"
+
+export type DeploymentJob = {
+  id: string
+  userId: string
+  safePct: number
+  growthPct: number
+  status: DeploymentStatus
+  logs: string[]
+  createdAt: string
+  updatedAt: string
+}
+
 @Injectable()
 export class PortfolioService {
+  private readonly targets = new Map<string, PortfolioTargets>() // userId -> targets
+  private readonly jobs = new Map<string, DeploymentJob>()
+
+  constructor() {
+    // simple in-memory state machine tick
+    setInterval(() => this.tickJobs(), 5000)
+  }
+
   getSnapshot(): PortfolioSnapshot {
     return {
       securityBalance: 8240,
@@ -64,5 +98,88 @@ export class PortfolioService {
       content: getLegalDoc(slug, locale),
     }
   }
-}
 
+  setTargets(userId: string, safePct: number, growthPct: number) {
+    const total = Number(safePct) + Number(growthPct)
+    if (Math.abs(total - 1) > 0.01) {
+      throw new Error("Safe + Growth must be ~100%")
+    }
+    const record: PortfolioTargets = {
+      safePct,
+      growthPct,
+      updatedAt: new Date().toISOString(),
+    }
+    this.targets.set(userId, record)
+    return record
+  }
+
+  getTargets(userId: string) {
+    return this.targets.get(userId) ?? null
+  }
+
+  createDeploymentJob(userId: string, safePct: number, growthPct: number) {
+    const now = new Date().toISOString()
+    const job: DeploymentJob = {
+      id: `job_${Date.now()}_${this.jobs.size + 1}`,
+      userId,
+      safePct,
+      growthPct,
+      status: "AWAIT_BRIDGE",
+      logs: ["Job created. Awaiting bridge from Safe wallet (Base) to Growth wallet (Polygon)."],
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.jobs.set(job.id, job)
+    return job
+  }
+
+  listJobsForUser(userId: string) {
+    return Array.from(this.jobs.values()).filter((job) => job.userId === userId)
+  }
+
+  getJob(jobId: string) {
+    return this.jobs.get(jobId) ?? null
+  }
+
+  private tickJobs() {
+    const active = Array.from(this.jobs.values()).filter(
+      (job) =>
+        !["DONE", "FAILED"].includes(job.status) &&
+        !["AWAIT_BRIDGE", "BRIDGING", "POLYGON_READY"].includes(job.status),
+    )
+    for (const job of active) {
+      const next = this.nextStatus(job.status)
+      if (!next) continue
+      job.status = next
+      job.updatedAt = new Date().toISOString()
+      job.logs.unshift(this.logForStatus(next))
+      if (job.logs.length > 20) job.logs.pop()
+      this.jobs.set(job.id, job)
+    }
+  }
+
+  private nextStatus(status: DeploymentStatus): DeploymentStatus | null {
+    switch (status) {
+      case "BASE_EXEC":
+        return "BASE_EXEC"
+      case "POLY_EXEC":
+        return "DONE"
+      default:
+        return null
+    }
+  }
+
+  private logForStatus(status: DeploymentStatus) {
+    const now = new Date().toISOString()
+    const messages: Record<DeploymentStatus, string> = {
+      AWAIT_BRIDGE: `${now} AWAIT_BRIDGE: user must bridge funds Safe(Base) -> Growth(Polygon)`,
+      BASE_EXEC: `${now} BASE_EXEC: internal tasks after bridge (optional)`,
+      BRIDGING: `${now} BRIDGING: waiting for Polygon arrival`,
+      POLYGON_READY: `${now} POLYGON_READY: funds detected on Polygon`,
+      POLY_EXEC: `${now} POLY_EXEC: swapping and depositing into Growth vault`,
+      DONE: `${now} DONE: deployment completed`,
+      FAILED: `${now} FAILED: deployment failed`,
+    }
+    return messages[status]
+  }
+}

@@ -22,11 +22,14 @@ async function request<T>(path: string, init?: RequestInitLite): Promise<T> {
   }
 }
 
-export function apiGet<T>(path: string) {
-  return request<T>(path)
+export function apiGet<T>(path: string, token?: string) {
+  return request<T>(path, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
 }
 
-export function apiPost<T>(path: string, body?: unknown) {
-  return request<T>(path, { method: "POST", body })
+export function apiPost<T>(path: string, body?: unknown, token?: string) {
+  return request<T>(path, {
+    method: "POST",
+    body,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
 }
-

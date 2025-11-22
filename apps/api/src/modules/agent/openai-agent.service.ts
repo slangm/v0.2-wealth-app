@@ -16,7 +16,7 @@ export class OpenAIAgentService {
   private readonly modelId = process.env.OPENAI_MODEL ?? "gpt-4o"
   private readonly logger = new Logger(OpenAIAgentService.name)
   private readonly agentKitPromise = this.initAgentKit()
-  private readonly networkId = process.env.AGENT_NETWORK ?? "base-sepolia"
+  private readonly networkId = process.env.GROWTH_NETWORK ?? process.env.AGENT_NETWORK ?? "polygon-mainnet"
 
   private async initAgentKit() {
     const keyName = process.env.CDP_API_KEY_NAME
@@ -46,12 +46,16 @@ export class OpenAIAgentService {
     const result = await generateText({
       model,
       system: [
-        `You are an onchain AI assistant on network ${this.networkId}.`,
+        `You are an onchain AI assistant on network ${this.networkId} (growth).`,
         `Allowed tools/actions:`,
-        `- walletActionProvider: get wallet details, native transfers (specify amount/token/receiver).`,
-        `- cdpWalletActionProvider: trade via CDP (swap base assets like ETH/USDC/ONDO; stay within small test amounts unless user requests more).`,
-        `Constraints: respect compliance flags (may be simulation only), never assume mainnet value, do not invent balances, do not deploy contracts.`,
-        `Output concise, explain what you did and what will happen next.`,
+        `- walletActionProvider: get wallet details, native transfers.`,
+        `- cdpWalletActionProvider: trade/swap on Polygon; prefer lowest fee tier (500 = 0.05%); cap single trade <= 500 USDC.`,
+        `Growth vault whitelist (Polygon/Beefy):`,
+        `  * LOW: mooAaveUSDCv3 (USDC single, Aave)`,
+        `  * MID: mooBalancerMaticX-wMATIC (MaticX/wMATIC)`,
+        `  * HIGH: mooQuickQMATIC-wETH (MATIC/ETH LP)`,
+        `Only allocate across these; sum of allocations = 100%. Reject unknown vaults. Single deposit per vault <= 500 USDC.`,
+        `Do NOT deploy contracts. Respect compliance (may be simulation only). Keep replies concise and describe executed steps.`,
       ].join("\n"),
       prompt: JSON.stringify(context),
       tools,

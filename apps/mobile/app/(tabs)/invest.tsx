@@ -5,10 +5,34 @@ import Toast from "react-native-toast-message"
 import { usePortfolioStore } from "../../src/store/portfolio"
 import { recordAllocation } from "../../src/services/portfolio"
 import { formatFiat } from "@globalwealth/ui"
+import { useQuery } from "@tanstack/react-query"
+import { fetchBeefyVaults, mockBeefyDeposit } from "../../src/services/beefy"
+import { usePrivySession } from "../../src/hooks/usePrivySession"
 
 export default function InvestScreen() {
   const { strategies, securityBalance, growthBalance, recordAllocation: mutateLocal } = usePortfolioStore()
   const [pendingTarget, setPendingTarget] = useState<"protected" | "growth">("protected")
+  const session = usePrivySession()
+  const token = session.status === "authenticated" ? session.user.accessToken : undefined
+
+  const { data: beefyVaults } = useQuery({
+    queryKey: ["beefy-vaults"],
+    queryFn: () => fetchBeefyVaults(token),
+  })
+
+  async function handleBeefyDeposit(vaultId: string, amount = 100) {
+    try {
+      const resp = await mockBeefyDeposit(vaultId, amount, token)
+      Toast.show({
+        type: "success",
+        text1: "Growth deposit queued",
+        text2: `Vault ${vaultId} mock tx ${resp.txHash ?? "pending"}`,
+      })
+    } catch (error) {
+      console.warn("Beefy deposit failed", error)
+      Toast.show({ type: "error", text1: "Deposit failed", text2: "Check token or amount (≤ $500)" })
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: recordAllocation,
@@ -71,7 +95,37 @@ export default function InvestScreen() {
           <Text className="text-white font-semibold">{mutation.isPending ? "Routing..." : "Allocate $250"}</Text>
         </Pressable>
       </View>
+
+      <View className="bg-white/5 rounded-3xl p-5 mt-6">
+        <Text className="text-white text-lg font-semibold mb-2">AI Growth Plan (Polygon)</Text>
+        <Text className="text-white/70 text-sm mb-3">
+          AI 仅可在以下 3 个 Beefy vault 间分配，总额 ≤ $500/笔。
+        </Text>
+        {(beefyVaults ?? []).map((vault) => (
+          <View key={vault.id} className="py-3 border-b border-white/10">
+            <View className="flex-row justify-between">
+              <View className="flex-1 pr-3">
+                <Text className="text-white font-semibold">{vault.name}</Text>
+                <Text className="text-white/60 text-xs">
+                  {vault.chain} • Token: {vault.token} • APY: {vault.apy ? `${(vault.apy * 100).toFixed(2)}%` : "n/a"}
+                </Text>
+                <Text className="text-white/60 text-xs">
+                  Contract: {vault.earnContractAddress.slice(0, 6)}...{vault.earnContractAddress.slice(-4)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => handleBeefyDeposit(vault.id, 100)}
+                className="px-3 py-2 bg-primary rounded-full self-center"
+              >
+                <Text className="text-white text-xs font-semibold">Mock $100</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+        <Text className="text-white/60 text-xs mt-3">
+          提示：在 Advisor 聊天中让 AI 推荐比例（低/中/高），我们仅接受上述 vault，单笔 ≤ $500。
+        </Text>
+      </View>
     </ScrollView>
   )
 }
-

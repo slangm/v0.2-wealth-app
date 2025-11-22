@@ -11,13 +11,13 @@ export class WalletController {
 
   @Post()
   async create(@CurrentUser() user: User) {
-    const wallet = await this.walletService.ensureUserWallet(user.id)
-    return { wallet }
+    const [safeWallet, growthWallet] = await this.walletService.ensureDualWallets(user.id)
+    return { safeWallet, growthWallet }
   }
 
   @Get("me")
   async me(@CurrentUser() user: User) {
-    const wallet = await this.walletService.ensureUserWallet(user.id)
-    return { wallet, canTransact: this.walletService.canTransact(user.id) }
+    const [safeWallet, growthWallet] = await this.walletService.ensureDualWallets(user.id)
+    return { safeWallet, growthWallet, canTransact: this.walletService.canTransact(user.id) }
   }
 }

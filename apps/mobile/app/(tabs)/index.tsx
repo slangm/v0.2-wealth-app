@@ -50,6 +50,25 @@ export default function HomeScreen() {
   const ladder = calculateLadderProgress({ totalNetWorth, monthlyExpenses })
   const nudgeCopy = getLadderCopy(totalNetWorth, monthlyExpenses)
 
+  async function handleSafeDeposit() {
+    try {
+      const resp = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL ?? ""}/portfolio/safe/deposit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ amount: 100 }),
+      })
+      if (resp.ok) {
+        Toast.show({ type: "success", text1: "Safe deposit queued", text2: "Sent 90% to Aave, 10% kept liquid." })
+      } else {
+        Toast.show({ type: "error", text1: "Safe deposit failed" })
+      }
+    } catch {
+      Toast.show({ type: "error", text1: "Safe deposit failed" })
+    }
+  }
+
   return (
     <ScrollView className="flex-1 bg-background" contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
       <View className="flex-row justify-between items-center mb-6">
@@ -123,21 +142,21 @@ export default function HomeScreen() {
             </View>
           </View>
           <BoostList boosts={boosts} />
-          <View className="flex-row gap-3 mt-4">
-            <Pressable
-              onPress={() => router.push("/(modals)/simulate")}
-              className="flex-1 border border-white/10 rounded-full py-3 items-center"
-            >
-              <Text className="text-white font-semibold">Simulate</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/(modals)/add-money?target=protected")}
-              className="flex-1 bg-primary rounded-full py-3 items-center"
-            >
-              <Text className="text-white font-semibold">Deposit</Text>
-            </Pressable>
-          </View>
+        <View className="flex-row gap-3 mt-4">
+          <Pressable
+            onPress={() => router.push("/(modals)/simulate")}
+            className="flex-1 border border-white/10 rounded-full py-3 items-center"
+          >
+            <Text className="text-white font-semibold">Simulate</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleSafeDeposit}
+            className="flex-1 bg-primary rounded-full py-3 items-center"
+          >
+            <Text className="text-white font-semibold">Deposit</Text>
+          </Pressable>
         </View>
+      </View>
       </View>
 
       <View className="mt-8">
@@ -168,4 +187,3 @@ export default function HomeScreen() {
     </ScrollView>
   )
 }
-

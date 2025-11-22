@@ -18,6 +18,18 @@ export function AdvisorChatBubble({ message }: Props) {
         }}
       >
         <Text className="text-white">{message.content}</Text>
+        {isAssistant && message.actions && message.actions.length > 0 ? (
+          <View className="mt-2 bg-white/5 rounded-2xl p-2">
+            {message.actions.map((action, idx) => (
+              <View key={`${message.id}-act-${idx}`} className="mb-1">
+                <Text className="text-white text-xs">
+                  • {action.summary}
+                  {action.simulationOnly ? " (simulation)" : ""}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         <Text className="text-[10px] text-white/50 mt-2">
           {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
@@ -25,4 +37,3 @@ export function AdvisorChatBubble({ message }: Props) {
     </View>
   )
 }
-

@@ -7,15 +7,18 @@ import { AdvisorChatBubble } from "../../src/components/AdvisorChatBubble"
 import { fetchAdvisorHistory, sendAdvisorPrompt } from "../../src/services/advisor"
 import type { AdvisorMessage } from "../../src/services/advisor"
 import { usePortfolioStore } from "../../src/store/portfolio"
+import { usePrivySession } from "../../src/hooks/usePrivySession"
 
 export default function AdvisorScreen() {
   const { securityBalance, growthBalance, monthlyExpenses } = usePortfolioStore()
   const [prompt, setPrompt] = useState("")
   const [messages, setMessages] = useState<AdvisorMessage[]>([])
+  const session = usePrivySession()
+  const token = session.status === "authenticated" ? session.user.accessToken : undefined
 
   const { data: history } = useQuery<AdvisorMessage[]>({
     queryKey: ["advisor-history"],
-    queryFn: fetchAdvisorHistory,
+    queryFn: () => fetchAdvisorHistory(token),
   })
 
   useEffect(() => {
@@ -25,7 +28,7 @@ export default function AdvisorScreen() {
   }, [history])
 
   const mutation = useMutation({
-    mutationFn: sendAdvisorPrompt,
+    mutationFn: (vars: Parameters<typeof sendAdvisorPrompt>[0]) => sendAdvisorPrompt(vars, token),
     onSuccess: (assistantMessage) => {
       setMessages((prev) => [...prev, assistantMessage])
       setPrompt("")
@@ -86,4 +89,3 @@ export default function AdvisorScreen() {
     </KeyboardAvoidingView>
   )
 }
-

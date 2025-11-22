@@ -6,6 +6,7 @@ export type AdvisorMessage = {
   role: "user" | "assistant"
   content: string
   createdAt: string
+  actions?: Array<{ summary: string; type?: string; simulationOnly?: boolean }>
 }
 
 const seedMessages: AdvisorMessage[] = [
@@ -17,23 +18,46 @@ const seedMessages: AdvisorMessage[] = [
   },
 ]
 
-export async function fetchAdvisorHistory() {
+export async function fetchAdvisorHistory(token?: string) {
+  try {
+    // Placeholder: backend does not yet expose chat history; keep seed
+    await apiGet("/agent/logs", token)
+  } catch {
+    // ignore
+  }
   return seedMessages
 }
 
-export async function sendAdvisorPrompt({
-  prompt,
-  totalNetWorth,
-  monthlyExpenses,
-}: {
-  prompt: string
-  totalNetWorth: number
-  monthlyExpenses: number
-}) {
+export async function sendAdvisorPrompt(
+  {
+    prompt,
+    totalNetWorth,
+    monthlyExpenses,
+  }: {
+    prompt: string
+    totalNetWorth: number
+    monthlyExpenses: number
+  },
+  token?: string,
+) {
   const contextCopy = getLadderCopy(totalNetWorth, monthlyExpenses)
   try {
-    const response = await apiPost<AdvisorMessage>("/advisor", { prompt, totalNetWorth, monthlyExpenses })
-    return response
+    const response = await apiPost<{
+      reply: string
+      actions?: Array<{ summary: string; type?: string; simulationOnly?: boolean }>
+      compliance?: { canTrade: boolean; region: string }
+    }>(
+      "/agent/chat",
+      { message: prompt, totalNetWorth, monthlyExpenses },
+      token,
+    )
+    return {
+      id: `assistant-${Date.now()}`,
+      role: "assistant",
+      content: response.reply,
+      actions: response.actions,
+      createdAt: new Date().toISOString(),
+    }
   } catch {
     return {
       id: `local-${Date.now()}`,
@@ -45,4 +69,3 @@ export async function sendAdvisorPrompt({
     }
   }
 }
-
