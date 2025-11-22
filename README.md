@@ -1,30 +1,23 @@
-# Fintech app design
+# Global Wealth & Freedom App
 
-*Automatically synced with your [v0.app](https://v0.app) deployments*
+This repository contains the cross-platform Global Wealth & Freedom experience described in the v0.2 PRD. It is organized as a Turborepo with independently deployable apps and shared packages:
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/slangms-projects/v0-fintech-app-design)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/ivH7rvQ7jl0)
+- `apps/web` – Next.js marketing shell + rich pre-login experience from v0.
+- `apps/mobile` – Expo Router app that delivers the end-to-end “security → growth” ladder for iOS & Android.
+- `apps/api` – TypeScript backend for identity, portfolio aggregation, payments, and AI advisor context APIs.
+- `packages/ui` – Cross-platform design tokens & primitives shared between web/mobile.
+- `packages/contracts` – Ethereum mainnet smart contracts (ERC-4626 vaults, strategy routers, AA guardian) with Foundry/Hardhat toolchain.
+- `packages/content` – Localized markdown surfaces for disclosures, ToS, and trust copy.
 
-## Overview
+## Getting Started
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+```bash
+pnpm install
+pnpm dev        # runs all dev servers via turbo
+pnpm dev:web    # run only the Next.js app
+pnpm dev:mobile # start the Expo app (EAS or Expo Go)
+pnpm dev:api    # start the backend API
+```
 
-## Deployment
+Additional documentation for each workspace lives in its respective folder.
 
-Your project is live at:
-
-**[https://vercel.com/slangms-projects/v0-fintech-app-design](https://vercel.com/slangms-projects/v0-fintech-app-design)**
-
-## Build your app
-
-Continue building your app on:
-
-**[https://v0.app/chat/ivH7rvQ7jl0](https://v0.app/chat/ivH7rvQ7jl0)**
-
-## How It Works
-
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository

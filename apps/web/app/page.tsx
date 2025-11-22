@@ -10,6 +10,7 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 import { AddMoneyFlow } from "@/components/add-money-flow"
 import { ScanDrawer } from "@/components/scan-drawer"
 import { OracleSearch } from "@/components/oracle-search"
+import { calculateLadderProgress, formatFiat } from "@globalwealth/ui"
 import {
   ArrowUpRight,
   Plus,
@@ -40,11 +41,7 @@ export default function Home() {
   const totalNetWorth = 8240.0 + 4605.23
 
   const monthlyExpenses = 3000
-  const securityGoal = monthlyExpenses * 6 // 6 months
-  const freedomGoal = monthlyExpenses * 12 * 25 // 25 years
-
-  const securityProgress = Math.min((totalNetWorth / securityGoal) * 100, 100)
-  const freedomProgress = Math.min((totalNetWorth / freedomGoal) * 100, 100)
+  const ladder = calculateLadderProgress({ totalNetWorth, monthlyExpenses })
 
   if (showOnboarding) {
     return <Onboarding onComplete={() => setShowOnboarding(false)} />
@@ -80,9 +77,7 @@ export default function Home() {
               <div className="space-y-5">
                 <div>
                   <p className="text-muted-foreground font-medium text-base">Total Balance</p>
-                  <h1 className="text-6xl font-bold tracking-tighter">
-                    ${totalNetWorth.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </h1>
+                  <h1 className="text-6xl font-bold tracking-tighter">{formatFiat(totalNetWorth)}</h1>
                 </div>
 
                 <div className="bg-card border border-border rounded-xl p-5 space-y-4">
@@ -92,17 +87,17 @@ export default function Home() {
                       <span className="font-semibold text-base">Financial Security</span>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      {Math.round(securityProgress)}% of 6 mo. expenses
+                      {Math.round(ladder.security)}% of 6 mo. expenses
                     </span>
                   </div>
                   <div className="h-2.5 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500 rounded-full transition-all duration-1000"
-                      style={{ width: `${securityProgress}%` }}
+                      style={{ width: `${ladder.security}%` }}
                     />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Goal: ${securityGoal.toLocaleString()} • You're building a safety net.
+                    Goal: {formatFiat(ladder.securityGoal)} • You're building a safety net.
                   </p>
                 </div>
 
@@ -113,17 +108,17 @@ export default function Home() {
                       <span className="font-semibold text-base">Financial Freedom</span>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      {freedomProgress.toFixed(1)}% of 25 yrs expenses
+                      {ladder.freedom.toFixed(1)}% of 25 yrs expenses
                     </span>
                   </div>
                   <div className="h-2.5 bg-secondary rounded-full overflow-hidden">
                     <div
                       className="h-full bg-purple-500 rounded-full transition-all duration-1000"
-                      style={{ width: `${freedomProgress}%` }}
+                      style={{ width: `${ladder.freedom}%` }}
                     />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Goal: ${freedomGoal.toLocaleString()} • Long-term independence.
+                    Goal: {formatFiat(ladder.freedomGoal)} • Long-term independence.
                   </p>
                 </div>
               </div>
