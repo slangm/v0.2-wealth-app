@@ -13,6 +13,7 @@ coverage
 
 # Env/config
 .env*
+!.env.example
 .DS_Store
 
 # Logs

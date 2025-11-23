@@ -1,3 +1,5 @@
+import { initiateCoinbaseLogin } from "./coinbase"
+
 export type PrivyUser = {
   id: string
   email: string
@@ -48,6 +50,7 @@ async function backendLogin(email: string) {
   const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL
   if (!apiBase) return null
   try {
+    await initiateCoinbaseLogin({ email })
     const loginResp = await fetch(`${apiBase}/auth/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

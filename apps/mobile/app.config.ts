@@ -25,6 +25,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   extra: {
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://api.preview.globalwealth.finance",
+    coinbase: {
+      apiKeyName: process.env.EXPO_PUBLIC_CDP_API_KEY_NAME,
+      network: process.env.EXPO_PUBLIC_AGENT_NETWORK ?? "base-mainnet",
+    },
     eas: {
       projectId: "global-wealth-app",
     },
