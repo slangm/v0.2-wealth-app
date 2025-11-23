@@ -3,9 +3,9 @@ import { View, Text, TextInput, Pressable, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
 import { Shield, Wallet, Clock3 } from "lucide-react-native"
 
-import { signInWithEmail } from "../src/services/privy"
+import { signInWithCoinbase } from "../src/services/privy"
 import { usePortfolioStore } from "../src/store/portfolio"
-import { usePrivySession } from "../src/hooks/usePrivySession"
+import { useSession } from "../src/hooks/useSession"
 
 const contributionOptions = [
   { id: "starter", label: "Starter", amount: 200, copy: "Build $1k safety net in 5 months" },
@@ -15,7 +15,7 @@ const contributionOptions = [
 
 export default function OnboardingScreen() {
   const router = useRouter()
-  const session = usePrivySession()
+  const session = useSession()
   const { setLocale } = usePortfolioStore()
   const [step, setStep] = useState(0)
   const [email, setEmail] = useState("lang@example.com")
@@ -31,7 +31,7 @@ export default function OnboardingScreen() {
   async function handleContinue() {
     if (step === 0) {
       setLoading(true)
-      await signInWithEmail(email)
+      await signInWithCoinbase(email)
       setLoading(false)
       setStep(1)
       return
@@ -51,7 +51,7 @@ export default function OnboardingScreen() {
 
       {step === 0 && (
         <View className="mt-8 bg-white/5 rounded-3xl p-5">
-          <Text className="text-white text-lg font-semibold mb-3">Create your Privy smart wallet</Text>
+          <Text className="text-white text-lg font-semibold mb-3">Create your Coinbase smart wallet</Text>
           <TextInput
             value={email}
             onChangeText={setEmail}

@@ -1,7 +1,7 @@
 import { ScrollView, View, Text, Pressable } from "react-native"
 import { useRouter } from "expo-router"
 import { signOut } from "../../src/services/privy"
-import { usePrivySession } from "../../src/hooks/usePrivySession"
+import { useSession } from "../../src/hooks/useSession"
 
 const legalLinks = [
   { slug: "terms", label: "Terms of Service" },
@@ -11,7 +11,7 @@ const legalLinks = [
 
 export default function SettingsScreen() {
   const router = useRouter()
-  const session = usePrivySession()
+  const session = useSession()
 
   return (
     <ScrollView className="flex-1 bg-background" contentContainerStyle={{ padding: 20, paddingBottom: 80 }}>

@@ -160,7 +160,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           </div>
         </div>
       ) : (
-        // Login Screen (Privy Style)
+        // Login Screen (CDP Embedded Wallet style)
         <div className="relative flex flex-col h-full bg-background p-6">
           {/* Header */}
           <div className="flex items-center justify-between pt-2 mb-8">

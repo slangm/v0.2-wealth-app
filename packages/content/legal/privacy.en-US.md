@@ -2,7 +2,7 @@
 
 We collect the minimum data required to operate regulated money movement and to personalize your financial plan:
 
-- Authentication identifiers from Privy (email + pseudonymous wallet).
+- Authentication identifiers from Coinbase CDP (email + pseudonymous wallet).
 - Funding preferences, rule configurations, and device metadata for security monitoring.
 - Aggregated position data sourced from the blockchain and trusted providers.
 

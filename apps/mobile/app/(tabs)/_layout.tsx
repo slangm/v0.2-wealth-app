@@ -1,9 +1,9 @@
 import { Tabs, Redirect } from "expo-router"
 import { Home, ShieldCheck, Compass, MessageCircle, Settings } from "lucide-react-native"
-import { usePrivySession } from "../../src/hooks/usePrivySession"
+import { useSession } from "../../src/hooks/useSession"
 
 export default function TabsLayout() {
-  const session = usePrivySession()
+  const session = useSession()
 
   if (session.status !== "authenticated") {
     return <Redirect href="/onboarding" />

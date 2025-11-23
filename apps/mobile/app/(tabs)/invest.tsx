@@ -7,12 +7,12 @@ import { recordAllocation } from "../../src/services/portfolio"
 import { formatFiat } from "@globalwealth/ui"
 import { useQuery } from "@tanstack/react-query"
 import { fetchBeefyVaults, mockBeefyDeposit } from "../../src/services/beefy"
-import { usePrivySession } from "../../src/hooks/usePrivySession"
+import { useSession } from "../../src/hooks/useSession"
 
 export default function InvestScreen() {
   const { strategies, securityBalance, growthBalance, recordAllocation: mutateLocal } = usePortfolioStore()
   const [pendingTarget, setPendingTarget] = useState<"protected" | "growth">("protected")
-  const session = usePrivySession()
+  const session = useSession()
   const token = session.status === "authenticated" ? session.user.accessToken : undefined
 
   const { data: beefyVaults } = useQuery({

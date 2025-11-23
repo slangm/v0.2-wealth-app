@@ -4,7 +4,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import Toast from "react-native-toast-message"
 import { StatusBar } from "expo-status-bar"
-import { bootstrapPrivy } from "../services/privy"
+import { bootstrapSession } from "../services/privy"
 
 type Props = {
   children: ReactNode
@@ -24,7 +24,7 @@ export function AppProviders({ children }: Props) {
   )
 
   useEffect(() => {
-    bootstrapPrivy()
+    bootstrapSession()
   }, [])
 
   return (

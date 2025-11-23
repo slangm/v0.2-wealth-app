@@ -31,7 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       network: process.env.EXPO_PUBLIC_AGENT_NETWORK ?? "base-mainnet",
     },
     eas: {
-      projectId: "global-wealth-app",
+      projectId: "6e7b9d4e-609a-4966-813a-42e2c9eb4e43",
     },
   },
   plugins: ["expo-router"],
