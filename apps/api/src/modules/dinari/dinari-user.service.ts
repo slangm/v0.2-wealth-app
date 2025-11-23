@@ -301,6 +301,34 @@ export class DinariUserService {
   }
 
   /**
+   * Sign arbitrary EIP-712 typed data using the demo wallet.
+   * Used when frontend sends typed data but not signatures.
+   */
+  async signTypedDataWithDemoWallet(typedData: {
+    domain: Record<string, any>;
+    types: Record<string, Array<{ name: string; type: string }>>;
+    message: Record<string, any>;
+  }): Promise<string> {
+    if (!this.DEMO_PRIVATE_KEY) {
+      throw new Error(
+        "Demo private key not configured. Cannot auto-sign typed data."
+      );
+    }
+
+    // Dynamically import ethers to avoid bundling in environments that don't need it
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore Optional runtime dependency for server-side signing
+    const { Wallet } = await import("ethers");
+
+    const wallet = new Wallet(this.DEMO_PRIVATE_KEY);
+    return wallet.signTypedData(
+      typedData.domain,
+      typedData.types,
+      typedData.message
+    );
+  }
+
+  /**
    * Get user's account info with demo fallback (without writing to storage)
    */
   async getAccountInfoWithDemo(userId: string): Promise<DinariUserData | null> {

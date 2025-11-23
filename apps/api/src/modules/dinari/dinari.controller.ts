@@ -180,12 +180,22 @@ export class DinariController {
     @Body()
     body: {
       preparedProxiedOrderId: string;
-      permitSignature: string;
-      orderSignature: string;
+      permitSignature?: string;
+      orderSignature?: string;
+      permitTypedData?: {
+        domain: Record<string, any>;
+        types: Record<string, Array<{ name: string; type: string }>>;
+        message: Record<string, any>;
+      };
+      orderTypedData?: {
+        domain: Record<string, any>;
+        types: Record<string, Array<{ name: string; type: string }>>;
+        message: Record<string, any>;
+      };
     }
   ) {
-    // Get user's Dinari account
-    const accountInfo = await this.dinariUserService.getUserAccountInfo(
+    // Get user's Dinari account (fallback to demo config in dev mode)
+    const accountInfo = await this.dinariUserService.getAccountInfoWithDemo(
       user.id
     );
     if (!accountInfo?.accountId) {
@@ -194,12 +204,34 @@ export class DinariController {
       );
     }
 
+    let permitSignature = body.permitSignature;
+    let orderSignature = body.orderSignature;
+
+    // Auto-sign using demo wallet if signatures are missing but typed data is provided
+    if (!permitSignature && body.permitTypedData) {
+      permitSignature =
+        await this.dinariUserService.signTypedDataWithDemoWallet(
+          body.permitTypedData
+        );
+    }
+    if (!orderSignature && body.orderTypedData) {
+      orderSignature = await this.dinariUserService.signTypedDataWithDemoWallet(
+        body.orderTypedData
+      );
+    }
+
+    if (!permitSignature || !orderSignature) {
+      throw new Error(
+        "Missing signatures. Provide permit/order signatures or typed data for auto-signing."
+      );
+    }
+
     // Create proxied order with signatures
     const params = {
       accountId: accountInfo.accountId,
       preparedProxiedOrderId: body.preparedProxiedOrderId,
-      permitSignature: body.permitSignature,
-      orderSignature: body.orderSignature,
+      permitSignature,
+      orderSignature,
     };
 
     const orderRequest = await this.dinariService.createProxiedOrder(params);
