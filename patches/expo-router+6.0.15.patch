@@ -1,0 +1,14 @@
+diff --git a/node_modules/.pnpm/expo-router@6.0.15_j7h3kx7pbdp4xnfrdd2azxcoie/node_modules/expo-router/ios/ExpoHead.podspec b/node_modules/.pnpm/expo-router@6.0.15_j7h3kx7pbdp4xnfrdd2azxcoie/node_modules/expo-router/ios/ExpoHead.podspec
+index 61ee79e..f1bc81b 100644
+--- a/node_modules/.pnpm/expo-router@6.0.15_j7h3kx7pbdp4xnfrdd2azxcoie/node_modules/expo-router/ios/ExpoHead.podspec
++++ b/node_modules/.pnpm/expo-router@6.0.15_j7h3kx7pbdp4xnfrdd2azxcoie/node_modules/expo-router/ios/ExpoHead.podspec
+@@ -27,7 +27,7 @@ Pod::Spec.new do |s|
+ 
+   s.dependency 'ExpoModulesCore'
+ 
+-  add_dependency(s, "RNScreens")
++  s.dependency "RNScreens"
+ 
+   # Swift/Objective-C compatibility
+   s.pod_target_xcconfig = {
+
