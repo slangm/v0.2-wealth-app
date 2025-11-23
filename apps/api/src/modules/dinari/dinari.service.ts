@@ -2,7 +2,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { getAddress } from "viem";
 
 const DINARI_API_BASE =
-  process.env.DINARI_API_BASE || "https://api-enterprise.sbt.dinari.com/api/v2";
+  process.env.DINARI_BASE_URL ||
+  "https://api-enterprise.sandbox.dinari.com/api/v2";
 // Support both DINARI_API_KEY_ID and DINARI_API_KEY_ID env var names
 const DINARI_API_KEY_ID = process.env.DINARI_API_KEY_ID || "";
 // Support both DINARI_SECRET_KEY and DINARI_API_SECRET_KEY env var names

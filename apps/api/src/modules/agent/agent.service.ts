@@ -58,70 +58,29 @@ export class AgentService {
       growthBalance, // Add growth account balance
     });
 
-    const toolDrivenActions =
-      llmResult.toolActions?.map<AgentAction>((action: any) => ({
-        type: "advice",
-        summary: action.summary ?? action,
-      })) ?? [];
+    // Return agent's original values directly
+    const actions: AgentAction[] =
+      llmResult.toolActions?.map<AgentAction>((action: any) => {
+        const actionType = action.type || "advice";
+        // Validate action type is one of the allowed types
+        const validTypes: AgentAction["type"][] = [
+          "swap",
+          "deposit",
+          "rebalance",
+          "advice",
+          "buy_stock",
+        ];
+        return {
+          type: validTypes.includes(actionType) ? actionType : "advice",
+          summary: action.summary ?? action,
+          stockSymbol: action.stockSymbol,
+          amount: action.amount,
+          simulationOnly: action.simulationOnly ?? !compliance.canTrade,
+        };
+      }) ?? [];
 
-    const fallbackActions: AgentAction[] = [
-      {
-        type: "advice",
-        summary:
-          "Rebalance deposits toward 60% Protected Savings / 40% Growth for ONDO exposure.",
-      },
-      compliance.canTrade
-        ? {
-            type: "swap",
-            summary: `Swap 200 USDC → ONDO on ${wallet.network} via user wallet ${wallet.address}`,
-          }
-        : {
-            type: "advice",
-            summary:
-              "Region blocked for live trades. Running in simulation-only mode.",
-            simulationOnly: true,
-          },
-    ];
-
-    const allActions = (
-      toolDrivenActions.length ? toolDrivenActions : fallbackActions
-    ).map((a) => ({
-      ...a,
-      simulationOnly: a.simulationOnly ?? !compliance.canTrade,
-    }));
-
-    // Separate advice actions from executable actions
-    const adviceActions = allActions.filter((a) => a.type === "advice");
-    const executableActions = allActions.filter(
-      (a) => a.type !== "advice" && a.type !== "buy_stock"
-    );
-    const buyStockActions = allActions.filter((a) => a.type === "buy_stock");
-
-    // Build reply text: naturally incorporate advice into the reply
-    let replyText = llmResult.reply;
-
-    // If LLM didn't generate a reply, create one that naturally includes advice
-    if (
-      !replyText ||
-      replyText === "No response generated." ||
-      replyText.trim() === ""
-    ) {
-      if (adviceActions.length > 0) {
-        // Create a natural language reply incorporating the advice
-        const firstAdvice = adviceActions[0].summary;
-        // Convert advice summary to natural language
-        replyText = `I recommend ${firstAdvice.toLowerCase()}.`;
-      } else {
-        replyText =
-          "I can help you manage your portfolio. What would you like to know?";
-      }
-    }
-    // If LLM generated a reply, use it as-is (advice is already incorporated in the natural language response)
-
-    // Add compliance notice if needed
-    if (!compliance.canTrade) {
-      replyText = `${replyText}\n\nNote: Live trades are blocked for region: ${compliance.region}. Running in simulation-only mode.`;
-    }
+    // Use LLM's original reply text
+    let replyText = llmResult.reply || "No response generated.";
 
     this.audit.record({
       userId: user.id,
@@ -132,7 +91,7 @@ export class AgentService {
 
     return {
       reply: replyText,
-      actions: [...executableActions, ...buyStockActions], // Include buy_stock actions for user confirmation
+      actions: actions, // Return all original actions from agent
       portfolioSummary: {
         totalNetWorth: snapshot.securityBalance + snapshot.growthBalance,
         securityBalance: snapshot.securityBalance,
