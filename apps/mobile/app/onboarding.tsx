@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react"
-import { View, Text, TextInput, Pressable, ScrollView } from "react-native"
+import { View, Text, Pressable, ScrollView } from "react-native"
 import { useRouter } from "expo-router"
-import { Shield, Wallet, Clock3 } from "lucide-react-native"
+import { Shield, Wallet, Clock3, LogIn } from "lucide-react-native"
+import Toast from "react-native-toast-message"
+import { useLoginWithOAuth } from "@privy-io/expo"
 
-import { signInWithCoinbase } from "../src/services/privy"
 import { usePortfolioStore } from "../src/store/portfolio"
 import { useSession } from "../src/hooks/useSession"
 
@@ -18,9 +19,9 @@ export default function OnboardingScreen() {
   const session = useSession()
   const { setLocale } = usePortfolioStore()
   const [step, setStep] = useState(0)
-  const [email, setEmail] = useState("lang@example.com")
   const [selectedOption, setSelectedOption] = useState(contributionOptions[1])
   const [loading, setLoading] = useState(false)
+  const { login } = useLoginWithOAuth()
 
   useEffect(() => {
     if (session.status === "authenticated") {
@@ -30,10 +31,16 @@ export default function OnboardingScreen() {
 
   async function handleContinue() {
     if (step === 0) {
-      setLoading(true)
-      await signInWithCoinbase(email)
-      setLoading(false)
-      setStep(1)
+      try {
+        setLoading(true)
+        await login({ provider: "google" })
+        setStep(1)
+      } catch (error) {
+        console.warn("Google login failed", error)
+        Toast.show({ type: "error", text1: "Google signin failed", text2: "Try again or check Privy config." })
+      } finally {
+        setLoading(false)
+      }
       return
     }
     if (step === 1) {
@@ -50,19 +57,18 @@ export default function OnboardingScreen() {
       <Text className="text-white/70 mt-2">Reach “safe & growing” savings in under 10 minutes.</Text>
 
       {step === 0 && (
-        <View className="mt-8 bg-white/5 rounded-3xl p-5">
-          <Text className="text-white text-lg font-semibold mb-3">Create your Coinbase smart wallet</Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="name@email.com"
-            placeholderTextColor="#94a3b8"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            className="bg-white/10 rounded-2xl px-4 py-3 text-white"
-          />
-          <Text className="text-white/60 text-xs mt-3">
-            We’ll help you back up the wallet and reveal keys only when you are ready.
+        <View className="mt-8 bg-white/5 rounded-3xl p-5 space-y-4">
+          <Text className="text-white text-lg font-semibold">Sign in with Google</Text>
+          <Text className="text-white/70 text-sm">
+            Privy uses your Google account to create an embedded wallet—no seed phrases, just one tap to unlock
+            deposits.
+          </Text>
+          <View className="flex-row items-center gap-3 bg-white/10 rounded-2xl px-4 py-3">
+            <LogIn color="#fde047" />
+            <Text className="text-white/80 text-sm">Secure OAuth + Privy-managed wallets.</Text>
+          </View>
+          <Text className="text-white/60 text-xs">
+            You can always disconnect Google from Settings → Accounts. We never see your password.
           </Text>
         </View>
       )}
@@ -115,7 +121,9 @@ export default function OnboardingScreen() {
         disabled={loading}
         className="mt-8 bg-primary rounded-full py-4 items-center"
       >
-        <Text className="text-white font-semibold text-lg">{loading ? "Creating wallet..." : "Continue"}</Text>
+        <Text className="text-white font-semibold text-lg">
+          {step === 0 ? (loading ? "Connecting..." : "Continue with Google") : "Continue"}
+        </Text>
       </Pressable>
     </ScrollView>
   )

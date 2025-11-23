@@ -33,6 +33,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       apiKeyName: process.env.EXPO_PUBLIC_CDP_API_KEY_NAME,
       network: process.env.EXPO_PUBLIC_AGENT_NETWORK ?? "base-mainnet",
     },
+    privy: {
+      appId: process.env.EXPO_PUBLIC_PRIVY_APP_ID,
+      clientId: process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID,
+    },
     eas: {
       projectId: "6e7b9d4e-609a-4966-813a-42e2c9eb4e43",
     },

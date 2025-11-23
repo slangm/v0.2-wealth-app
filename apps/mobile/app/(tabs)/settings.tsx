@@ -1,6 +1,5 @@
 import { ScrollView, View, Text, Pressable } from "react-native"
 import { useRouter } from "expo-router"
-import { signOut } from "../../src/services/privy"
 import { useSession } from "../../src/hooks/useSession"
 
 const legalLinks = [
@@ -39,8 +38,8 @@ export default function SettingsScreen() {
       </View>
 
       <Pressable
-        onPress={() => {
-          signOut()
+        onPress={async () => {
+          await session.logout()
           router.replace("/onboarding")
         }}
         className="mt-8 border border-white/20 rounded-full py-3 items-center"
