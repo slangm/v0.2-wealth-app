@@ -26,6 +26,9 @@ export function AdvisorChatBubble({ message }: Props) {
                   • {action.summary}
                   {action.simulationOnly ? " (simulation)" : ""}
                 </Text>
+                {action.preparedId ? (
+                  <Text className="text-white/50 text-[10px]">Prepared ID: {action.preparedId}</Text>
+                ) : null}
               </View>
             ))}
           </View>

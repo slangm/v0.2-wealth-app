@@ -1,212 +1,225 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
-import {
-  AgentKit,
-  CdpWalletProvider,
-  walletActionProvider,
-  cdpWalletActionProvider,
-} from "@coinbase/agentkit";
-import { getVercelAITools } from "@coinbase/agentkit-vercel-ai-sdk";
 import { DinariService } from "../dinari/dinari.service";
+import { DinariUserService } from "../dinari/dinari-user.service";
+import { PaymentsService } from "../payments/payments.service";
+import { PortfolioService } from "../portfolio/portfolio.service";
+import { InputParser } from "./input-parser";
+import { PromptBuilder } from "./prompt-builder";
+import { ToolRegistry } from "./tool-registry";
+import { AgentRunner } from "./agent-runner";
+import { AgentLogger } from "./agent-logger";
 
 type AgentContext = {
   message: string;
   snapshot: unknown;
   compliance: unknown;
   wallet: unknown;
-  growthBalance?: number; // Growth account balance in USD
+  growthBalance?: number;
+  userId?: string;
 };
 
 @Injectable()
 export class OpenAIAgentService {
-  private readonly modelId = process.env.OPENAI_MODEL ?? "gpt-4o";
   private readonly logger = new Logger(OpenAIAgentService.name);
-  private readonly agentKitPromise = this.initAgentKit();
-  private readonly networkId =
-    process.env.GROWTH_NETWORK ?? process.env.AGENT_NETWORK ?? "base-sepolia";
+  private readonly agentLogger = new AgentLogger(this.logger);
 
-  constructor(private readonly dinariService: DinariService) {}
-
-  private async initAgentKit() {
-    const keyName = process.env.CDP_API_KEY_NAME;
-    const privateKey = process.env.CDP_API_KEY_PRIVATE_KEY;
-    if (!keyName || !privateKey) {
-      this.logger.warn(
-        "CDP_API_KEY_NAME / CDP_API_KEY_PRIVATE_KEY not set; running LLM without AgentKit tools."
-      );
-      return null;
-    }
-    const walletProvider = await CdpWalletProvider.configureWithWallet({
-      apiKeyName: keyName,
-      apiKeyPrivateKey: privateKey,
-      networkId: this.networkId,
-    });
-    const cdpConfig = { apiKeyName: keyName, apiKeyPrivateKey: privateKey };
-    const actionProviders = [
-      walletActionProvider(),
-      cdpWalletActionProvider(cdpConfig),
-    ];
-    return AgentKit.from({
-      walletProvider,
-      actionProviders,
-    });
-  }
+  constructor(
+    private readonly dinariService: DinariService,
+    private readonly dinariUserService: DinariUserService,
+    private readonly paymentsService: PaymentsService,
+    private readonly portfolioService: PortfolioService
+  ) {}
 
   async generate(context: AgentContext) {
-    const model = openai(this.modelId);
-    const agentKit = await this.agentKitPromise;
-    let tools = undefined;
-    if (agentKit) {
-      try {
-        tools = await getVercelAITools(agentKit);
-      } catch (err) {
-        this.logger.warn(
-          `Failed to initialize AgentKit tools, falling back to text-only: ${String(err)}`
-        );
-      }
+    // Validate API key
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      this.logger.error(
+        "⚠️ OPENAI_API_KEY not set! OpenAI API calls will fail."
+      );
+      throw new Error("OpenAI API key not configured");
     }
 
-    // Get 3 random Dinari stocks for AI to choose from
-    let randomStocksInfo = "";
-    let randomStocks: any[] = [];
+    // Get growth account balance
+    const growthBalance = context.growthBalance || 1000;
+
+    // Get available stocks
+    let availableStocks: Array<{ symbol: string; name: string }> = [];
     try {
-      randomStocks = await this.dinariService.getRandomStocks(3);
-      if (randomStocks.length > 0) {
-        randomStocksInfo = `Here are 3 random stocks available for purchase:\n${randomStocks
-          .map(
-            (s, i) =>
-              `${i + 1}. ${s.symbol} (${s.name})${s.currentPrice ? ` - $${s.currentPrice}` : ""}${s.dayChangePct ? ` (${s.dayChangePct > 0 ? "+" : ""}${s.dayChangePct}%)` : ""}`
-          )
-          .join(
-            "\n"
-          )}\n\nWhen user asks to buy stocks or invest in Dinari, randomly select ONE of these 3 stocks and recommend buying it.`;
-      } else {
-        // Fallback to full list if random selection fails
-        randomStocksInfo = await this.dinariService.getStocksForAgent();
-      }
+      const stocks = await this.dinariService.getStocks();
+      availableStocks = stocks.slice(0, 10).map((s) => ({
+        symbol: s.symbol,
+        name: s.name,
+      }));
+      this.logger.log(
+        `📊 Loaded ${availableStocks.length} stocks: ${availableStocks.map((s) => s.symbol).join(", ")}`
+      );
     } catch (err) {
-      this.logger.warn(`Failed to fetch Dinari stocks: ${err}`);
-      randomStocksInfo = "Dinari stocks temporarily unavailable.";
+      this.logger.warn(`Failed to fetch stocks: ${err}`);
     }
 
-    // Get growth account balance from context
-    const growthBalance = (context as any).growthBalance || 1000; // Default to 1000 USD
+    // Parse user input
+    const originalMessage =
+      typeof context.message === "string"
+        ? context.message
+        : JSON.stringify(context.message);
 
-    const result = await generateText({
-      model,
-      system: [
-        `You are an onchain AI assistant on network ${this.networkId} (growth).`,
-        `Allowed tools/actions:`,
-        `- walletActionProvider: get wallet details, native transfers.`,
-        `- cdpWalletActionProvider: trade/swap on Polygon; prefer lowest fee tier (500 = 0.05%); cap single trade <= 500 USDC.`,
-        `- Dinari stocks: You can recommend buying tokenized stocks via Dinari API.`,
-        ``,
-        `User's Growth Account Balance: $${growthBalance.toFixed(2)} USD`,
-        ``,
-        `Growth investment options:`,
-        `1. Polygon/Beefy vaults (whitelist):`,
-        `   * LOW: mooAaveUSDCv3 (USDC single, Aave)`,
-        `   * MID: mooBalancerMaticX-wMATIC (MaticX/wMATIC)`,
-        `   * HIGH: mooQuickQMATIC-wETH (MATIC/ETH LP)`,
-        `2. Dinari tokenized stocks:`,
-        `   ${randomStocksInfo}`,
-        ``,
-        `Rules:`,
-        `- Only allocate across whitelisted vaults; sum of allocations = 100%. Reject unknown vaults.`,
-        `- Single deposit per vault <= 500 USDC.`,
-        `- For Dinari stocks: When user asks to buy stocks or invest, randomly select ONE stock from the 3 provided stocks above and create a buy_stock action with stockSymbol and amount.`,
-        `- IMPORTANT: When recommending Dinari stocks, ALWAYS format your response as:`,
-        `  "You have $${growthBalance.toFixed(2)} in your growth account. I recommend buying $[AMOUNT] worth of [STOCK_SYMBOL]. This represents [PERCENTAGE]% of your growth account balance."`,
-        `  Where [PERCENTAGE] = ([AMOUNT] / ${growthBalance.toFixed(2)}) * 100, rounded to 1 decimal place.`,
-        `- Example: If recommending $100 of AAPL: "You have $${growthBalance.toFixed(2)} in your growth account. I recommend buying $100 worth of AAPL. This represents ${((100 / growthBalance) * 100).toFixed(1)}% of your growth account balance."`,
-        `- When recommending Dinari stocks, include a buy_stock action (not just advice) so user can confirm and execute.`,
-        `- Always calculate and show the percentage accurately based on the user's current balance.`,
-        `- Do NOT deploy contracts. Respect compliance (may be simulation only).`,
-        `- Keep replies concise and describe executed steps.`,
-      ].join("\n"),
-      prompt: JSON.stringify(context),
-      tools,
-    } as any);
+    const parsedInput = InputParser.parse(originalMessage);
 
-    const toolResults = (result as any).toolResults ?? [];
-    const toolSummaries: string[] = [];
-    const toolActions: Array<{
-      type: "advice" | "buy_stock";
-      summary: string;
-      stockSymbol?: string;
-      amount?: number;
-    }> = [];
+    const userWantsStockAction =
+      parsedInput.intent === "buy" || parsedInput.intent === "recommend";
 
-    for (const tr of toolResults) {
-      const name = tr.toolName ?? tr.toolId ?? "tool";
-      const parsed = this.parseResult(tr.result ?? tr);
-      const summary = parsed ? `${name}: ${parsed}` : `${name}: executed`;
-      toolSummaries.push(summary);
-      toolActions.push({ type: "advice", summary });
-    }
-
-    const replyText = (result as any).text?.trim?.() ?? "";
-
-    // Parse buy_stock actions from reply text
-    // Look for patterns like "buy $100 of AAPL" or "purchase AAPL for $100"
-    const buyStockRegex =
-      /(?:buy|purchase|invest)\s+(?:in\s+)?\$?(\d+(?:\.\d+)?)\s+(?:worth\s+of\s+|in\s+)?([A-Z]{1,5})|([A-Z]{1,5})\s+(?:for\s+|at\s+)?\$?(\d+(?:\.\d+)?)/gi;
-    const buyMatches = [...replyText.matchAll(buyStockRegex)];
-
-    for (const match of buyMatches) {
-      const amount = parseFloat(match[1] || match[4] || "100");
-      const symbol = (match[2] || match[3] || "").toUpperCase();
-      if (symbol && amount > 0) {
-        toolActions.push({
-          type: "buy_stock",
-          summary: `Buy $${amount} worth of ${symbol}`,
-          stockSymbol: symbol,
-          amount: amount,
-        });
+    if (userWantsStockAction) {
+      if (!context.userId) {
+        throw new Error("User ID is required for stock operations.");
       }
+      const autoResult = await this.handleAutoBuy({
+        userId: context.userId,
+        requestedStock: parsedInput.stockSymbol,
+        growthBalance,
+        availableStocks,
+      });
+      return autoResult;
     }
 
-    const reply =
-      replyText ||
-      (toolSummaries.length
-        ? `Tools executed:\n${toolSummaries.join("\n")}`
-        : "No response generated.");
+    // Log request
+    this.agentLogger.logRequest({
+      message: originalMessage,
+      growthBalance,
+      availableStocks,
+      parsedInput,
+    });
+
+    // Build prompt
+    const systemPrompt = PromptBuilder.buildSystemPrompt({
+      growthBalance,
+      availableStocks,
+      userSpecifiedStock: parsedInput.stockSymbol,
+      userSpecifiedAmount: parsedInput.amount,
+    });
+
+    const userMessage = PromptBuilder.buildUserMessage(
+      originalMessage,
+      growthBalance,
+      parsedInput
+    );
+
+    // Build tools
+    const tools: Record<string, any> = {};
+    const toolContext = {
+      userId: context.userId!,
+      growthBalance,
+      availableStocks,
+      dinariUserService: this.dinariUserService,
+      paymentsService: this.paymentsService,
+      portfolioService: this.portfolioService,
+    };
+
+    if (context.userId) {
+      // Always register buy_stock if stocks available
+      if (availableStocks.length > 0) {
+        tools.buy_stock = ToolRegistry.createBuyStockTool(toolContext);
+      }
+
+      // Register other tools
+      const depositTool = ToolRegistry.createDepositTool(toolContext);
+      if (depositTool) {
+        tools.deposit = depositTool;
+      }
+
+      const swapTool = ToolRegistry.createSwapTool(toolContext);
+      if (swapTool) {
+        tools.swap = swapTool;
+      }
+
+      const rebalanceTool = ToolRegistry.createRebalanceTool(toolContext);
+      if (rebalanceTool) {
+        tools.rebalance = rebalanceTool;
+      }
+
+      this.logger.log(`🔧 Tools registered: ${Object.keys(tools).join(", ")}`);
+    } else {
+      this.logger.warn(`⚠️ Tools not registered: userId not available`);
+    }
+
+    // Run agent
+    const result = await AgentRunner.run({
+      systemPrompt,
+      userMessage,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
+      logger: this.logger,
+      growthBalance,
+    });
+
+    // Log response
+    this.agentLogger.logResponse(result);
 
     return {
-      reply,
-      toolSummaries,
-      toolActions,
-      usedTools: Boolean(tools),
+      reply: result.reply,
+      toolSummaries: result.toolSummaries,
+      toolActions: result.toolActions,
+      usedTools: Object.keys(tools).length > 0,
     };
   }
 
-  private parseResult(result: unknown): string | null {
-    if (!result) return null;
-    // Try to parse stringified JSON
-    if (typeof result === "string") {
-      try {
-        const json = JSON.parse(result);
-        return this.stringifyObject(json);
-      } catch {
-        return result;
-      }
+  private async handleAutoBuy(params: {
+    userId: string;
+    requestedStock?: string | null;
+    growthBalance: number;
+    availableStocks: Array<{ symbol: string; name: string }>;
+  }) {
+    const { userId, requestedStock, growthBalance, availableStocks } = params;
+    if (!availableStocks.length) {
+      return {
+        reply: "No stocks are currently available. Please try again later.",
+        toolSummaries: [],
+        toolActions: [],
+        usedTools: false,
+      };
     }
-    if (typeof result === "object") {
-      return this.stringifyObject(result as Record<string, unknown>);
-    }
-    return String(result);
-  }
 
-  private stringifyObject(obj: Record<string, any>): string {
-    // Special-case wallet detail shape
-    if (obj.address && obj.provider && obj.network) {
-      const network = obj.network.protocol_family
-        ? `${obj.network.protocol_family}/${obj.network.network_id ?? obj.network.chain_id ?? ""}`
-        : JSON.stringify(obj.network);
-      const balance = obj.balance ?? obj.native_balance ?? obj.nativeBalance;
-      return `Wallet ${obj.address} on ${network} • Balance: ${balance ?? "unknown"}`;
+    const stockSymbol = (
+      requestedStock?.toUpperCase() ||
+      availableStocks[Math.floor(Math.random() * availableStocks.length)].symbol
+    ).toUpperCase();
+
+    let amount = Math.floor(growthBalance * 0.1);
+    if (amount < 100) amount = 100;
+
+    try {
+      const result = await this.dinariUserService.buyStock(
+        userId,
+        stockSymbol,
+        amount
+      );
+
+      const percentage = ((amount / growthBalance) * 100).toFixed(1);
+      const summary = `Prepared an automatic order for ${stockSymbol}: $${amount} (about ${percentage}% of your balance). Please sign in your wallet to confirm.`;
+
+      return {
+        reply: summary,
+        toolSummaries: [summary],
+        toolActions: [
+          {
+            type: "buy_stock",
+            summary,
+            stockSymbol,
+            amount,
+            preparedId: result.preparedOrderId,
+          },
+        ],
+        usedTools: true,
+      };
+    } catch (error: any) {
+      this.logger.error(`Auto buy failed: ${error.message}`);
+      return {
+        reply: `Failed to prepare the ${stockSymbol} order: ${
+          error.message || "unknown error"
+        }`,
+        toolSummaries: [],
+        toolActions: [],
+        usedTools: false,
+      };
     }
-    return JSON.stringify(obj);
   }
 }

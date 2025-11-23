@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { getAddress } from "viem";
+import Dinari from "@dinari/api-sdk";
 
 const DINARI_API_BASE =
-  process.env.DINARI_API_BASE || "https://api-enterprise.sbt.dinari.com/api/v2";
-// Support both DINARI_API_KEY_ID and DINARI_API_KEY_ID env var names
+  process.env.DINARI_BASE_URL ||
+  "https://api-enterprise.sandbox.dinari.com/api/v2";
 const DINARI_API_KEY_ID = process.env.DINARI_API_KEY_ID || "";
-// Support both DINARI_SECRET_KEY and DINARI_API_SECRET_KEY env var names
 const DINARI_API_SECRET_KEY =
   process.env.DINARI_SECRET_KEY || process.env.DINARI_API_SECRET_KEY || "";
 const DINARI_API_ENTITY_ID = process.env.DINARI_API_ENTITY_ID || "";
@@ -114,6 +114,25 @@ export class DinariService {
   private readonly logger = new Logger(DinariService.name);
   private stocksCache: { data: DinariStock[]; ts: number } | null = null;
   private readonly cacheMs = 1000 * 60 * 5; // 5 minutes
+  private readonly client: Dinari;
+
+  constructor() {
+    this.client = new Dinari({
+      apiKeyID: DINARI_API_KEY_ID,
+      apiSecretKey: DINARI_API_SECRET_KEY,
+      baseURL: DINARI_API_BASE,
+    });
+
+    if (!DINARI_API_KEY_ID || !DINARI_API_SECRET_KEY) {
+      this.logger.warn(
+        `⚠️  Dinari API credentials missing! X-API-Key-Id=${DINARI_API_KEY_ID ? "***" + DINARI_API_KEY_ID.slice(-4) : "NOT SET"}, X-API-Secret-Key=${DINARI_API_SECRET_KEY ? "***SET***" : "NOT SET"}`
+      );
+    } else {
+      this.logger.log(
+        `✅ Dinari SDK initialized: baseURL=${DINARI_API_BASE}, X-API-Key-Id=***${DINARI_API_KEY_ID.slice(-4)}`
+      );
+    }
+  }
 
   private getHeaders() {
     // Dinari API authentication uses X-API-Key-Id and X-API-Secret-Key headers
@@ -244,32 +263,47 @@ export class DinariService {
     }
 
     try {
-      const url = `${DINARI_API_BASE}/market_data/stocks/`;
+      this.logger.log(
+        `Fetching stocks from Dinari API: ${DINARI_API_BASE}/market_data/stocks`
+      );
       const headers = this.getHeaders();
-
-      const resp = await this.fetchWithLogging(url, {
+      const response = await fetch(`${DINARI_API_BASE}/market_data/stocks`, {
         method: "GET",
         headers,
       });
 
-      const responseText = await resp.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        data = responseText;
-      }
-
-      if (!resp.ok) {
+      if (!response.ok) {
+        const errorText = await response.text();
         this.logger.error(
-          `Failed to fetch Dinari stocks: ${resp.status} - ${responseText}`
+          `Dinari API error: ${response.status} ${response.statusText} - ${errorText}`
         );
-        throw new Error(`Dinari API error: ${resp.status} - ${responseText}`);
+        throw new Error(
+          `Failed to fetch stocks: ${response.status} ${response.statusText}`
+        );
       }
-      // Dinari API returns stocks as an array directly
-      const stocks = Array.isArray(data) ? data : [];
 
-      const formatted: DinariStock[] = stocks.map((stock: any) => ({
+      const data = await response.json();
+      // Handle both array and object responses
+      const stocks = Array.isArray(data)
+        ? data
+        : data.data || data.stocks || [];
+      this.logger.log(`📊 Received ${stocks.length} stocks from API`);
+
+      // Filter stocks that support Ethereum Sepolia (eip155:11155111) for Growth Portfolio
+      const targetChain = "eip155:11155111";
+      const supportedStocks = stocks.filter((stock: any) => {
+        const tokens = stock.tokens || [];
+        const hasTargetChain = tokens.some((token: string) =>
+          token.startsWith(targetChain + ":")
+        );
+        return hasTargetChain;
+      });
+
+      this.logger.log(
+        `✅ Filtered ${supportedStocks.length} stocks supporting ${targetChain} (from ${stocks.length} total)`
+      );
+
+      const formatted: DinariStock[] = supportedStocks.map((stock: any) => ({
         id: stock.id || stock.symbol,
         symbol: stock.symbol,
         name: stock.display_name || stock.name || stock.symbol,
@@ -280,11 +314,12 @@ export class DinariService {
       }));
 
       this.stocksCache = { data: formatted, ts: now };
-      this.logger.log(`Cached ${formatted.length} stocks`);
+      this.logger.log(
+        `✅ Cached ${formatted.length} stocks (filtered for ${targetChain})`
+      );
       return formatted;
     } catch (error) {
       this.logger.error(`Error fetching Dinari stocks: ${error}`);
-      // Return empty array on error to prevent breaking the app
       return [];
     }
   }
@@ -428,18 +463,15 @@ export class DinariService {
   async getWalletConnectionNonce(
     accountId: string,
     walletAddress: string,
-    chainId: string = "eip155:0" // eip155:0 for EOA wallets, eip155:1 for Ethereum mainnet
+    chainId: string = "eip155:0"
   ): Promise<{ nonce: string; message: string }> {
     try {
-      // Ensure address is in checksum format (required by Dinari API)
       const checksumAddress = toChecksumAddress(walletAddress);
-      // Don't encode the address - Dinari API expects the raw checksum address in URL
-      // Ethereum addresses only contain 0-9, a-f, A-F, and 0x prefix, so no encoding needed
-      const url = `${DINARI_API_BASE}/accounts/${accountId}/wallet/external/nonce?wallet_address=${checksumAddress}&chain_id=${encodeURIComponent(chainId)}`;
       this.logger.log(
-        `Getting nonce for wallet ${checksumAddress} (original: ${walletAddress}) on chain ${chainId}`
+        `Getting nonce for wallet ${checksumAddress} on chain ${chainId}`
       );
 
+      const url = `${DINARI_API_BASE}/accounts/${accountId}/wallet/external/nonce?wallet_address=${checksumAddress}&chain_id=${encodeURIComponent(chainId)}`;
       const headers = this.getHeaders();
       const resp = await this.fetchWithLogging(url, {
         method: "GET",
@@ -460,6 +492,8 @@ export class DinariService {
         );
         throw new Error(`Dinari API error: ${resp.status} - ${responseText}`);
       }
+
+      this.logger.log(`✅ Got nonce for wallet ${checksumAddress}`);
       return {
         nonce: data.nonce,
         message: data.message,
@@ -483,13 +517,12 @@ export class DinariService {
     nonce: string
   ): Promise<any> {
     try {
-      // Ensure address is in checksum format (required by Dinari API)
       const checksumAddress = toChecksumAddress(walletAddress);
-      const url = `${DINARI_API_BASE}/accounts/${accountId}/wallet/external`;
       this.logger.log(
         `Connecting wallet ${checksumAddress} to account ${accountId} on chain ${chainId}`
       );
 
+      const url = `${DINARI_API_BASE}/accounts/${accountId}/wallet/external`;
       const headers = this.getHeaders();
       const body = JSON.stringify({
         signature,
@@ -512,7 +545,7 @@ export class DinariService {
       }
 
       const data = await resp.json();
-      this.logger.log(`Wallet connected: ${data.address || walletAddress}`);
+      this.logger.log(`✅ Wallet connected: ${data.address || walletAddress}`);
       return data;
     } catch (error) {
       this.logger.error(`Error connecting wallet: ${error}`);
@@ -544,31 +577,10 @@ export class DinariService {
    */
   async createAccountForEntity(entityId: string): Promise<any> {
     try {
-      const url = `${DINARI_API_BASE}/entities/${entityId}/accounts`;
       this.logger.log(`Creating account for entity ${entityId}`);
-
-      const headers = this.getHeaders();
-      const resp = await this.fetchWithLogging(url, {
-        method: "POST",
-        headers,
-      });
-
-      const responseText = await resp.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        data = responseText;
-      }
-
-      if (!resp.ok) {
-        this.logger.error(
-          `Failed to create account: ${resp.status} - ${responseText}`
-        );
-        throw new Error(`Dinari API error: ${resp.status} - ${responseText}`);
-      }
-      this.logger.log(`Account created: ${data.id || "unknown"}`);
-      return data;
+      const account = await this.client.v2.entities.accounts.create(entityId);
+      this.logger.log(`✅ Account created: ${account.id}`);
+      return account;
     } catch (error) {
       this.logger.error(`Error creating account: ${error}`);
       throw error;
@@ -613,13 +625,13 @@ export class DinariService {
   }
 
   /**
-   * Get all entities
-   * Reference: GET /entities
+   * Get cash balance for account
+   * Reference: GET /accounts/{account_id}/cash
    */
-  async getEntities(): Promise<any[]> {
+  async getCashBalance(accountId: string): Promise<number> {
     try {
-      const url = `${DINARI_API_BASE}/entities/`;
-      this.logger.log(`Fetching entities`);
+      const url = `${DINARI_API_BASE}/accounts/${accountId}/cash`;
+      this.logger.log(`Fetching cash balance from ${url}`);
 
       const headers = this.getHeaders();
       const resp = await this.fetchWithLogging(url, {
@@ -628,20 +640,92 @@ export class DinariService {
       });
 
       const responseText = await resp.text();
+      this.logger.debug(
+        `Cash API response status: ${resp.status}, body: ${responseText}`
+      );
+
       let data: any;
       try {
         data = JSON.parse(responseText);
-      } catch {
-        data = responseText;
+      } catch (parseError) {
+        this.logger.error(
+          `Failed to parse cash balance response: ${parseError}. Raw response: ${responseText}`
+        );
+        throw new Error(`Failed to parse cash balance response: ${parseError}`);
       }
 
       if (!resp.ok) {
         this.logger.error(
-          `Failed to fetch entities: ${resp.status} - ${responseText}`
+          `Failed to fetch cash balance: ${resp.status} ${resp.statusText} - ${responseText}`
         );
-        throw new Error(`Dinari API error: ${resp.status} - ${responseText}`);
+        throw new Error(
+          `Dinari API error: ${resp.status} ${resp.statusText} - ${responseText}`
+        );
       }
-      return Array.isArray(data) ? data : data.results || [];
+
+      // Handle array response: find the balance for eip155:11155111
+      if (Array.isArray(data) && data.length > 0) {
+        this.logger.debug(
+          `Cash API returned array with ${data.length} entries`
+        );
+        const targetChain = "eip155:11155111";
+        const cashEntry = data.find(
+          (entry: any) => entry.chain_id === targetChain
+        );
+        if (cashEntry?.amount) {
+          const balance = parseFloat(cashEntry.amount);
+          this.logger.log(
+            `✅ Found cash balance for ${targetChain}: $${balance}`
+          );
+          return balance;
+        }
+        // Fallback to first entry if target chain not found
+        if (data[0]?.amount) {
+          const balance = parseFloat(data[0].amount);
+          this.logger.warn(
+            `⚠️ Target chain ${targetChain} not found, using first entry: $${balance}`
+          );
+          return balance;
+        }
+        this.logger.warn(
+          `⚠️ Array response has no amount field. Data: ${JSON.stringify(data)}`
+        );
+      } else if (data && typeof data === "object") {
+        // Handle single object response
+        if (data.amount) {
+          const balance = parseFloat(data.amount);
+          this.logger.log(`✅ Found cash balance: $${balance}`);
+          return balance;
+        }
+        this.logger.warn(
+          `⚠️ Object response has no amount field. Data: ${JSON.stringify(data)}`
+        );
+      } else {
+        this.logger.warn(
+          `⚠️ Unexpected response format. Data: ${JSON.stringify(data)}`
+        );
+      }
+
+      this.logger.warn(`No valid cash balance found in response, returning 0`);
+      return 0;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching cash balance for account ${accountId}: ${error}`
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get all entities
+   * Reference: GET /entities
+   */
+  async getEntities(): Promise<any[]> {
+    try {
+      this.logger.log(`Fetching entities from Dinari SDK`);
+      const entities = await this.client.v2.entities.list();
+      this.logger.log(`✅ Fetched ${entities.length} entities`);
+      return entities;
     } catch (error) {
       this.logger.error(`Error fetching entities: ${error}`);
       throw error;
@@ -797,14 +881,14 @@ export class DinariService {
    */
   async sandboxFaucet(
     accountId: string,
-    chainId: string = "eip155:421614" // Default to Arbitrum Sepolia
+    chainId: string = "eip155:11155111"
   ): Promise<any> {
     try {
-      const url = `${DINARI_API_BASE}/accounts/${accountId}/faucet`;
       this.logger.log(
         `Requesting sandbox faucet for account ${accountId} on chain ${chainId}`
       );
 
+      const url = `${DINARI_API_BASE}/accounts/${accountId}/faucet`;
       const headers = this.getHeaders();
       const body = JSON.stringify({
         chain_id: chainId,
@@ -829,7 +913,7 @@ export class DinariService {
         );
         throw new Error(`Dinari API error: ${resp.status} - ${responseText}`);
       }
-      this.logger.log(`Sandbox faucet successful for account ${accountId}`);
+      this.logger.log(`✅ Sandbox faucet successful for account ${accountId}`);
       return data;
     } catch (error) {
       this.logger.error(`Error requesting sandbox faucet: ${error}`);

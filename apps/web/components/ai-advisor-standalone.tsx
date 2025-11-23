@@ -21,6 +21,9 @@ type AdvisorAction = {
   simulationOnly?: boolean;
   stockSymbol?: string;
   amount?: number;
+  preparedId?: string;
+  orderRequestId?: string;
+  orderId?: string;
 };
 
 type Message = {
@@ -432,10 +435,26 @@ export function AIAdvisorStandalone() {
                             <p className="text-muted-foreground mb-2">
                               {act.summary}
                             </p>
+                            {act.preparedId ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Prepared ID: {act.preparedId}
+                              </p>
+                            ) : null}
+                            {act.orderRequestId ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Order Request: {act.orderRequestId}
+                              </p>
+                            ) : null}
+                            {act.orderId ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                Order ID: {act.orderId}
+                              </p>
+                            ) : null}
                             {act.type === "buy_stock" &&
                               act.stockSymbol &&
                               act.amount &&
-                              !act.simulationOnly && (
+                              !act.simulationOnly &&
+                              !act.orderRequestId && (
                                 <button
                                   onClick={() =>
                                     handleConfirmOrder(
