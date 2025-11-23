@@ -7,6 +7,29 @@ export class UsersService {
   private readonly store = new Map<string, User>()
   private readonly indexByGoogleId = new Map<string, string>()
 
+  constructor() {
+    // Initialize dev user if in development mode
+    this.ensureDevUser()
+  }
+
+  private ensureDevUser() {
+    const devUserId = "1dddf316-af55-4d5c-84e2-b555c076f51e"
+    const devUser: User = {
+      id: devUserId,
+      googleId: "dev-312915703482-spimu7hd40uk6q5hlhb5mui39pejnigq.apps.googleusercontent.com",
+      email: "312915703482-spimu7hd40uk6q5hlhb5mui39pejnigq.apps.googleusercontent.com@example.dev",
+      name: "Dev User",
+      region: "US",
+      createdAt: "2025-11-22T20:30:57.369Z",
+      updatedAt: "2025-11-22T20:32:24.240Z",
+    }
+
+    if (!this.store.has(devUserId)) {
+      this.store.set(devUserId, devUser)
+      this.indexByGoogleId.set(devUser.googleId, devUserId)
+    }
+  }
+
   findById(id: string) {
     return this.store.get(id) ?? null
   }

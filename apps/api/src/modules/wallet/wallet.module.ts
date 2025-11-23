@@ -1,12 +1,12 @@
-import { Module } from "@nestjs/common"
-import { WalletService } from "./wallet.service"
-import { WalletController } from "./wallet.controller"
-import { UsersModule } from "../users/users.module"
-import { AuthModule } from "../auth/auth.module"
-import { ComplianceModule } from "../compliance/compliance.module"
+import { Module, forwardRef } from "@nestjs/common";
+import { WalletService } from "./wallet.service";
+import { WalletController } from "./wallet.controller";
+import { UsersModule } from "../users/users.module";
+import { ComplianceModule } from "../compliance/compliance.module";
+import { AuthModule } from "../auth/auth.module";
 
 @Module({
-  imports: [UsersModule, AuthModule, ComplianceModule],
+  imports: [UsersModule, ComplianceModule, forwardRef(() => AuthModule)],
   providers: [WalletService],
   controllers: [WalletController],
   exports: [WalletService],
