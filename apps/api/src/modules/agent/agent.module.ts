@@ -8,6 +8,7 @@ import { AuditModule } from "../audit/audit.module";
 import { OpenAIAgentService } from "./openai-agent.service";
 import { AuthModule } from "../auth/auth.module";
 import { DinariModule } from "../dinari/dinari.module";
+import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DinariModule } from "../dinari/dinari.module";
     AuditModule,
     AuthModule,
     DinariModule,
+    PaymentsModule,
   ],
   providers: [AgentService, OpenAIAgentService],
   controllers: [AgentController],

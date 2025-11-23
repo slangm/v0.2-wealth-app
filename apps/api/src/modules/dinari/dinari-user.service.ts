@@ -70,7 +70,8 @@ export class DinariUserService {
    */
   async setupUserAccount(userId: string): Promise<SetupDinariAccountResult> {
     try {
-      const defaultChainId = process.env.DINARI_CHAIN_ID || "eip155:0";
+      // Account creation uses eip155:0 (EOA wallet)
+      const defaultChainId = "eip155:0";
 
       // 🎯 DEMO MODE: If DEMO_ACCOUNT_ID is configured, use it directly (skip account creation)
       if (
@@ -275,15 +276,15 @@ export class DinariUserService {
   }
 
   /**
-   * Get user's chain ID with fallback
-   * Returns user's chain_id if exists, otherwise defaults to eip155:0
+   * Get user's chain ID for trading (not account creation)
+   * Returns trading chain_id (eip155:11155111 for Ethereum Sepolia)
+   * Note: Account creation uses eip155:0, but trading uses eip155:11155111
    */
   async getUserChainId(userId: string): Promise<string> {
-    const userData = await this.storage.getUserData(userId);
+    // Always use Ethereum Sepolia for trading, regardless of stored chainId
     return (
-      userData?.chainId ||
       process.env.DINARI_CHAIN_ID ||
-      "eip155:8453" /* Base mainnet */
+      "eip155:11155111" /* Ethereum Sepolia for Growth Portfolio trading */
     );
   }
 
@@ -300,38 +301,79 @@ export class DinariUserService {
   }
 
   /**
+   * Get user's account info with demo fallback (without writing to storage)
+   */
+  async getAccountInfoWithDemo(userId: string): Promise<DinariUserData | null> {
+    let accountInfo = await this.getUserAccountInfo(userId);
+    if (!accountInfo?.accountId && this.DEMO_ACCOUNT_ID) {
+      const now = new Date().toISOString();
+      accountInfo = {
+        userId,
+        entityId: this.DEMO_ENTITY_ID || "",
+        accountId: this.DEMO_ACCOUNT_ID,
+        walletAddress: this.DEMO_WALLET_ADDRESS || "",
+        chainId: "eip155:11155111",
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.logger.log(
+        `🎯 DEMO MODE: Using demo account ${this.DEMO_ACCOUNT_ID} for user ${userId}`
+      );
+    }
+    return accountInfo ?? null;
+  }
+
+  /**
    * Get user's Dinari account balance (in USD)
-   * Returns the available balance in the growth account
+   * Returns the available balance in the growth account from /cash API
    */
   async getAccountBalance(userId: string): Promise<number> {
     try {
-      const accountInfo = await this.getUserAccountInfo(userId);
+      // Use demo config if available, otherwise get user account info
+      let accountInfo = await this.getUserAccountInfo(userId);
+
+      if (!accountInfo?.accountId && this.DEMO_ACCOUNT_ID) {
+        // Use demo config directly
+        accountInfo = {
+          userId,
+          entityId: this.DEMO_ENTITY_ID || "",
+          accountId: this.DEMO_ACCOUNT_ID,
+          walletAddress: this.DEMO_WALLET_ADDRESS || "",
+          chainId: "eip155:11155111",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        this.logger.log(
+          `🎯 DEMO MODE: Using demo account ${this.DEMO_ACCOUNT_ID} for getAccountBalance`
+        );
+      }
+
       if (!accountInfo?.accountId) {
-        // Return default balance if account not set up
-        return 1000; // Default sandbox balance after faucet
+        this.logger.warn(
+          `No account found for user ${userId}, returning default balance 1000`
+        );
+        return 1000;
       }
 
-      // Get wallet info from Dinari API (may contain balance)
-      const walletInfo = await this.dinari.getWalletForAccount(
-        accountInfo.accountId
+      // Get cash balance from Dinari API
+      this.logger.log(
+        `Fetching cash balance for account ${accountInfo.accountId}`
       );
+      const balance = await this.dinari.getCashBalance(accountInfo.accountId);
 
-      // Try to extract balance from wallet info
-      // Dinari API may return balance in different formats
-      if (walletInfo?.balance !== undefined) {
-        return parseFloat(walletInfo.balance) || 1000;
-      }
-      if (walletInfo?.available_balance !== undefined) {
-        return parseFloat(walletInfo.available_balance) || 1000;
-      }
-      if (walletInfo?.usd_balance !== undefined) {
-        return parseFloat(walletInfo.usd_balance) || 1000;
+      if (balance === 0 || balance === null || balance === undefined) {
+        this.logger.warn(
+          `Cash balance is 0/null for account ${accountInfo.accountId}, returning default 1000`
+        );
+        return 1000;
       }
 
-      // Default to 1000 USD (sandbox faucet amount)
-      return 1000;
+      this.logger.log(
+        `✅ Cash balance for account ${accountInfo.accountId}: $${balance}`
+      );
+      return balance;
     } catch (error) {
-      this.logger.warn(
+      this.logger.error(
         `Failed to get account balance for user ${userId}: ${error}`
       );
       // Return default balance on error
@@ -352,58 +394,68 @@ export class DinariUserService {
     userId: string,
     stockSymbol: string,
     amount: number, // USD amount
-    paymentTokenAddress: string = process.env.DINARI_PAYMENT_TOKEN ||
-      "0x833589fCD6eDb6E08f4c7C32D4f71b54bDA02913" // USDC on Base mainnet
+    paymentTokenAddress?: string
   ): Promise<any> {
     try {
-      // Get user account info
-      const accountInfo = await this.getUserAccountInfo(userId);
+      // Use demo config if available, otherwise get user account info
+      let accountInfo = await this.getUserAccountInfo(userId);
+
+      if (!accountInfo?.accountId && this.DEMO_ACCOUNT_ID) {
+        // Use demo config directly
+        const now = new Date().toISOString();
+        accountInfo = {
+          userId,
+          entityId: this.DEMO_ENTITY_ID || "",
+          accountId: this.DEMO_ACCOUNT_ID,
+          walletAddress: this.DEMO_WALLET_ADDRESS || "",
+          chainId: "eip155:11155111",
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.logger.log(
+          `🎯 DEMO MODE: Using demo account ${this.DEMO_ACCOUNT_ID} for buyStock`
+        );
+      }
+
       if (!accountInfo?.accountId) {
         throw new Error(
           "Dinari account not set up. Please call /dinari/setup first."
         );
       }
 
-      const walletAddress = await this.getUserWalletAddress(userId);
+      const walletAddress =
+        accountInfo.walletAddress || (await this.getUserWalletAddress(userId));
       const chainId = await this.getUserChainId(userId);
 
-      // 🎭 MOCK MODE: Return simulated success result immediately
-      if (process.env.DEMO_MOCK_ORDERS === "true") {
+      // Auto-select payment token based on chain ID if not provided
+      if (!paymentTokenAddress) {
+        if (chainId === "eip155:11155111") {
+          // Ethereum Sepolia (for Growth Portfolio)
+          paymentTokenAddress =
+            process.env.DINARI_PAYMENT_TOKEN ||
+            "0x665b099132d79739462DfDe6874126AFe840F7a3";
+        } else if (chainId === "eip155:84532") {
+          // Base Sepolia USDC
+          paymentTokenAddress =
+            process.env.DINARI_PAYMENT_TOKEN_BASE_SEPOLIA ||
+            "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+        } else if (chainId === "eip155:8453") {
+          // Base Mainnet USDC
+          paymentTokenAddress =
+            process.env.DINARI_PAYMENT_TOKEN_BASE_MAINNET ||
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bDA02913";
+        } else {
+          // Default to Ethereum Sepolia for Growth Portfolio
+          paymentTokenAddress =
+            process.env.DINARI_PAYMENT_TOKEN ||
+            "0x665b099132d79739462DfDe6874126AFe840F7a3";
+        }
         this.logger.log(
-          `🎭 MOCK MODE: Simulating order for ${stockSymbol} ($${amount})`
+          `Auto-selected payment token for ${chainId}: ${paymentTokenAddress}`
         );
-
-        const timestamp = Date.now();
-        const orderId = `019${timestamp.toString().slice(-13)}`;
-        const preparedId = `019${timestamp.toString().slice(-13)}-prep`;
-
-        // Save mock transaction
-        await this.storage.saveTransaction({
-          userId: userId,
-          accountId: accountInfo.accountId,
-          orderId: orderId,
-          stockSymbol: stockSymbol,
-          orderType: "market",
-          side: "buy",
-          amount: amount,
-          status: "completed",
-        });
-
-        return {
-          success: true,
-          mock: true,
-          preparedOrderId: preparedId,
-          orderRequestId: orderId,
-          orderId: orderId,
-          stockSymbol: stockSymbol,
-          amount: amount,
-          status: "SUBMITTED",
-          message: `Successfully placed order for $${amount} worth of ${stockSymbol}`,
-          transactionHash: `0x${timestamp.toString(16).padStart(64, "0")}`,
-        };
       }
 
-      // Step 1: Get stock by symbol
+      // Step 1: Get stock by symbol (always fetch from Dinari API)
       const stock = await this.dinari.getStockBySymbol(stockSymbol);
       if (!stock) {
         throw new Error(`Stock ${stockSymbol} not found`);
@@ -423,77 +475,14 @@ export class DinariUserService {
 
       this.logger.log(`Prepared order for ${stockSymbol}: ${preparedOrder.id}`);
 
-      // Step 3: Sign permit and order typed data using CDP wallet
-      if (!this.CDP_API_KEY_NAME || !this.CDP_API_KEY_PRIVATE_KEY) {
-        throw new Error(
-          "CDP_API_KEY_NAME and CDP_API_KEY_PRIVATE_KEY must be configured for automatic order signing"
-        );
-      }
-
-      const walletProvider = await CdpWalletProvider.configureWithWallet({
-        apiKeyName: this.CDP_API_KEY_NAME,
-        apiKeyPrivateKey: this.CDP_API_KEY_PRIVATE_KEY,
-        networkId: "base-sepolia",
-        address: walletAddress,
-      });
-
-      // Sign permit typed data (EIP-712)
-      // API may return snake_case or camelCase, handle both
-      const permitTypedData =
-        (preparedOrder as any).permit_typed_data ||
-        preparedOrder.permitTypedData;
-      const permitSignature = await walletProvider.signTypedData({
-        domain: permitTypedData.domain,
-        types: permitTypedData.types,
-        primaryType: permitTypedData.primaryType,
-        message: permitTypedData.message,
-      });
-      this.logger.log(`Signed permit typed data`);
-
-      // Sign order typed data (EIP-712)
-      const orderTypedData =
-        (preparedOrder as any).order_typed_data || preparedOrder.orderTypedData;
-      const orderSignature = await walletProvider.signTypedData({
-        domain: orderTypedData.domain,
-        types: orderTypedData.types,
-        primaryType: orderTypedData.primaryType,
-        message: orderTypedData.message,
-      });
-      this.logger.log(`Signed order typed data`);
-
-      // Step 4: Create proxied order
-      const orderRequest = await this.dinari.createProxiedOrder({
-        accountId: accountInfo.accountId,
-        preparedProxiedOrderId: preparedOrder.id,
-        permitSignature: permitSignature,
-        orderSignature: orderSignature,
-      });
-
-      this.logger.log(
-        `Created order request for ${stockSymbol}: ${orderRequest.id}`
-      );
-
-      // Step 5: Save transaction record
-      await this.storage.saveTransaction({
-        userId: userId,
-        accountId: accountInfo.accountId,
-        orderId: orderRequest.orderId,
-        stockSymbol: stockSymbol,
-        orderType: "market",
-        side: "buy",
-        amount: amount,
-        status: orderRequest.status === "SUBMITTED" ? "completed" : "pending",
-      });
-
+      // Return prepared order data for frontend to sign
       return {
         success: true,
         preparedOrderId: preparedOrder.id,
-        orderRequestId: orderRequest.id,
-        orderId: orderRequest.orderId,
+        preparedOrder: preparedOrder,
         stockSymbol: stockSymbol,
         amount: amount,
-        status: orderRequest.status,
-        message: `Successfully placed order for ${amount} USD worth of ${stockSymbol}`,
+        message: `Prepared order for ${amount} USD worth of ${stockSymbol}. Please sign and confirm.`,
       };
     } catch (error) {
       this.logger.error(`Error buying stock ${stockSymbol}: ${error}`);
@@ -653,6 +642,7 @@ export class DinariUserService {
         privateKey || this.DEMO_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY;
       if (localPrivateKey) {
         this.logger.log(`Using local private key for signing`);
+        // @ts-ignore Optional runtime dependency (not bundled in demo mode)
         const { Wallet } = await import("ethers");
         const wallet = new Wallet(localPrivateKey);
         if (wallet.address.toLowerCase() !== checksumAddress.toLowerCase()) {
@@ -721,5 +711,21 @@ export class DinariUserService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Save transaction record
+   */
+  async saveTransaction(transaction: {
+    userId: string;
+    accountId: string;
+    orderId?: string;
+    stockSymbol: string;
+    orderType: "market" | "limit";
+    side: "buy" | "sell";
+    amount: number;
+    status: "pending" | "completed" | "failed" | "cancelled";
+  }): Promise<void> {
+    await this.storage.saveTransaction(transaction);
   }
 }

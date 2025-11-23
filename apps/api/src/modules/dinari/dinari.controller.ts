@@ -44,6 +44,14 @@ export class DinariController {
 
   @Get("account")
   async getAccount(@CurrentUser() user: User) {
+    // Get cash balance from Dinari API (works even in demo mode)
+    let balance = 0;
+    try {
+      balance = await this.dinariUserService.getAccountBalance(user.id);
+    } catch (error) {
+      console.error("Failed to get account balance:", error);
+    }
+
     const accountInfo = await this.dinariUserService.getUserAccountInfo(
       user.id
     );
@@ -53,6 +61,7 @@ export class DinariController {
         walletAddress: null,
         chainId: null,
         entityId: null,
+        balance: balance, // Still return balance even if account not set up (demo mode)
         message: "Dinari account not set up. Please call /dinari/setup first.",
       };
     }
@@ -68,6 +77,7 @@ export class DinariController {
       walletAddress: walletAddress,
       chainId: chainId,
       entityId: accountInfo.entityId,
+      balance: balance,
       createdAt: accountInfo.createdAt,
       updatedAt: accountInfo.updatedAt,
     };
@@ -88,7 +98,7 @@ export class DinariController {
   @Get("wallet/nonce")
   async getWalletConnectionNonce(@CurrentUser() user: User) {
     // Get user's Dinari account
-    const accountInfo = await this.dinariUserService.getUserAccountInfo(
+    const accountInfo = await this.dinariUserService.getAccountInfoWithDemo(
       user.id
     );
     if (!accountInfo?.accountId) {
@@ -125,7 +135,8 @@ export class DinariController {
   @Post("wallet/link-server-side")
   async linkWalletServerSide(
     @CurrentUser() user: User,
-    @Body() body: { walletAddress: string; chainId?: string; privateKey?: string }
+    @Body()
+    body: { walletAddress: string; chainId?: string; privateKey?: string }
   ) {
     // Server-side wallet linking (automatic signing)
     // This endpoint handles the entire flow: get nonce, sign, connect
@@ -166,25 +177,12 @@ export class DinariController {
   @Post("orders/confirm")
   async confirmOrder(
     @CurrentUser() user: User,
-    @Body() body: { stockSymbol: string; amount: number }
-  ) {
-    // Alias for buyStock - user confirms the order and it's executed automatically
-    return this.dinariUserService.buyStock(
-      user.id,
-      body.stockSymbol,
-      body.amount
-    );
-  }
-
-  // Internal endpoints (kept for backward compatibility, but not recommended for direct use)
-  @Post("orders/prepare")
-  async prepareProxiedOrder(
-    @CurrentUser() user: User,
     @Body()
-    body: Omit<PrepareProxiedOrderParams, "accountId" | "chainId"> & {
-      amount?: number
-      chainId?: string
-    },
+    body: {
+      preparedProxiedOrderId: string;
+      permitSignature: string;
+      orderSignature: string;
+    }
   ) {
     // Get user's Dinari account
     const accountInfo = await this.dinariUserService.getUserAccountInfo(
@@ -196,18 +194,120 @@ export class DinariController {
       );
     }
 
-    // Get user's chain ID from stored data (fallback to eip155:0)
+    // Create proxied order with signatures
+    const params = {
+      accountId: accountInfo.accountId,
+      preparedProxiedOrderId: body.preparedProxiedOrderId,
+      permitSignature: body.permitSignature,
+      orderSignature: body.orderSignature,
+    };
+
+    const orderRequest = await this.dinariService.createProxiedOrder(params);
+
+    // Get full order details using getOrders if orderId is available
+    let orderDetails: any = null;
+    if (orderRequest.orderId) {
+      try {
+        const chainId = await this.dinariUserService.getUserChainId(user.id);
+        const orders = await this.dinariService.getOrders(
+          accountInfo.accountId,
+          {
+            chainId,
+          }
+        );
+        // Find the order by orderId
+        if (Array.isArray(orders)) {
+          orderDetails = orders.find(
+            (order: any) => order.id === orderRequest.orderId
+          );
+        } else if (orders?.data && Array.isArray(orders.data)) {
+          orderDetails = orders.data.find(
+            (order: any) => order.id === orderRequest.orderId
+          );
+        }
+      } catch (error) {
+        console.error("Failed to fetch order details:", error);
+      }
+    }
+
+    // Save transaction record with order details
+    try {
+      let stockSymbol = "";
+      if (orderDetails?.stock_id) {
+        try {
+          const stocks = await this.dinariService.getStocks();
+          const stock = stocks.find((s) => s.id === orderDetails.stock_id);
+          stockSymbol = stock?.symbol || "";
+        } catch (error) {
+          console.error("Failed to fetch stock symbol:", error);
+        }
+      }
+
+      await this.dinariUserService.saveTransaction({
+        userId: user.id,
+        accountId: accountInfo.accountId,
+        orderId: orderRequest.orderId,
+        stockSymbol: stockSymbol,
+        orderType: (orderDetails?.order_type?.toLowerCase() === "limit" ||
+        orderRequest.orderType?.toLowerCase() === "limit"
+          ? "limit"
+          : "market") as "market" | "limit",
+        side: (orderDetails?.order_side?.toLowerCase() === "sell" ||
+        orderRequest.orderSide?.toLowerCase() === "sell"
+          ? "sell"
+          : "buy") as "buy" | "sell",
+        amount: orderDetails?.payment_token_quantity || 0,
+        status: (orderRequest.status === "SUBMITTED"
+          ? "completed"
+          : "pending") as "pending" | "completed" | "failed" | "cancelled",
+      });
+    } catch (error) {
+      // Log error but don't fail the request
+      console.error("Failed to save transaction:", error);
+    }
+
+    return {
+      success: true,
+      orderRequestId: orderRequest.id,
+      orderId: orderRequest.orderId,
+      status: orderRequest.status,
+      orderDetails: orderDetails,
+      message: `Order ${orderRequest.status === "SUBMITTED" ? "submitted" : "pending"} successfully`,
+    };
+  }
+
+  // Internal endpoints (kept for backward compatibility, but not recommended for direct use)
+  @Post("orders/prepare")
+  async prepareProxiedOrder(
+    @CurrentUser() user: User,
+    @Body()
+    body: Omit<PrepareProxiedOrderParams, "accountId" | "chainId"> & {
+      amount?: number;
+      chainId?: string;
+    }
+  ) {
+    // Get user's Dinari account
+    const accountInfo = await this.dinariUserService.getUserAccountInfo(
+      user.id
+    );
+    if (!accountInfo?.accountId) {
+      throw new Error(
+        "Dinari account not set up. Please call /dinari/setup first."
+      );
+    }
+
+    // Get user's chain ID from stored data (fallback to Ethereum Sepolia)
     const chainId =
       body.chainId ||
       (await this.dinariUserService.getUserChainId(user.id)) ||
       process.env.DINARI_CHAIN_ID ||
-      "eip155:8453";
+      "eip155:11155111";
 
-    // Payment token defaults to Base USDC on sandbox/mainnet unless provided
+    // Payment token defaults to Ethereum Sepolia unless provided
     const paymentToken =
       body.paymentToken ||
       process.env.DINARI_PAYMENT_TOKEN ||
-      "0x833589fCD6eDb6E08f4c7C32D4f71b54bDA02913";
+      "0x665b099132d79739462DfDe6874126AFe840F7a3";
     const checksumPaymentToken = toChecksumAddress(paymentToken);
 
     // Use user's account ID and chain ID

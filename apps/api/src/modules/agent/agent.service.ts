@@ -59,10 +59,11 @@ export class AgentService {
       compliance,
       wallet,
       growthBalance, // Add growth account balance
+      userId: user.id, // Add user ID for tool calls
     });
 
-    // Return agent's original values directly
-    let actions: AgentAction[] =
+    // Map tool actions from LLM result (tools are already executed)
+    const actions: AgentAction[] =
       llmResult.toolActions?.map<AgentAction>((action: any) => {
         const actionType = action.type || "advice";
         // Validate action type is one of the allowed types
@@ -79,73 +80,11 @@ export class AgentService {
           stockSymbol: action.stockSymbol,
           amount: action.amount,
           simulationOnly: action.simulationOnly ?? !compliance.canTrade,
-          preparedId: action.preparedId,
+          preparedId: action.preparedId, // From tool execution result
           orderRequestId: action.orderRequestId,
           orderId: action.orderId,
         };
       }) ?? [];
-
-    // If the model proposed buy_stock and the user can trade, auto-sign + submit via Dinari
-    if (compliance.canTrade && actions.length > 0) {
-      // Ensure Dinari account is ready (idempotent)
-      let accountReady = true;
-      try {
-        await this.dinariUser.setupUserAccount(user.id);
-      } catch (err) {
-        accountReady = false;
-      }
-      actions = await Promise.all(
-        actions.map(async (action) => {
-          if (
-            action.type !== "buy_stock" ||
-            !action.stockSymbol ||
-            !action.amount
-          ) {
-            return action;
-          }
-          if (!accountReady) {
-            const timestamp = Date.now();
-            const orderId = `019${timestamp.toString().slice(-13)}`;
-            return {
-              ...action,
-              summary: `Order placed: $${action.amount} ${action.stockSymbol}`,
-              simulationOnly: false,
-              preparedId: `019${timestamp.toString().slice(-13)}-prep`,
-              orderRequestId: `019${timestamp.toString().slice(-13)}-req`,
-              orderId: orderId,
-            };
-          }
-          try {
-            const orderResult = await this.dinariUser.buyStock(
-              user.id,
-              action.stockSymbol,
-              action.amount
-            );
-            return {
-              ...action,
-              summary:
-                orderResult.message ||
-                `Order placed: $${action.amount} ${action.stockSymbol}`,
-              simulationOnly: false,
-              preparedId: orderResult.preparedOrderId,
-              orderRequestId: orderResult.orderRequestId,
-              orderId: orderResult.orderId,
-            };
-          } catch (err) {
-            const timestamp = Date.now();
-            const orderId = `019${timestamp.toString().slice(-13)}`;
-            return {
-              ...action,
-              summary: `Order placed: $${action.amount} ${action.stockSymbol}`,
-              simulationOnly: false,
-              preparedId: `019${timestamp.toString().slice(-13)}-prep`,
-              orderRequestId: `019${timestamp.toString().slice(-13)}-req`,
-              orderId: orderId,
-            };
-          }
-        })
-      );
-    }
 
     // Use LLM's original reply text
     let replyText = llmResult.reply || "No response generated.";
@@ -161,9 +100,9 @@ export class AgentService {
       reply: replyText,
       actions: actions, // Return all original actions from agent
       portfolioSummary: {
-        totalNetWorth: snapshot.securityBalance + snapshot.growthBalance,
+        totalNetWorth: snapshot.securityBalance + growthBalance,
         securityBalance: snapshot.securityBalance,
-        growthBalance: snapshot.growthBalance,
+        growthBalance: growthBalance, // Use real balance from Dinari API
       },
       compliance,
     };

@@ -29,6 +29,9 @@ importers:
       '@coinbase/agentkit-vercel-ai-sdk':
         specifier: ^0.1.0
         version: 0.1.0(@coinbase/agentkit@0.3.0)(ai@4.1.16)
+      '@dinari/api-sdk':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@globalwealth/content':
         specifier: workspace:*
         version: link:../../packages/content
@@ -86,6 +89,9 @@ importers:
       viem:
         specifier: ^2.21.1
         version: 2.39.3(typescript@5.9.3)(zod@3.25.76)
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
     devDependencies:
       '@nestjs/cli':
         specifier: ^11.0.2
@@ -2108,6 +2114,10 @@ packages:
 
   /@date-fns/tz@1.2.0:
     resolution: {integrity: sha512-LBrd7MiJZ9McsOgxqWX7AaxrDjcFVjWH/tIKJd7pnR7McaslGYOP1QmmiBXdJH/H/yLCT+rcQ7FaPBUxRGUtrg==}
+    dev: false
+
+  /@dinari/api-sdk@0.6.0:
+    resolution: {integrity: sha512-6wp7WDGUjD03Zn8Nvqy+PNJAIjgVPEVJn9d2MYfmFYqSPnM34r65a9Sfuz/dleaLBq7JyQjMjqdu+Opv4iWY2g==}
     dev: false
 
   /@egjs/hammerjs@2.0.17:
