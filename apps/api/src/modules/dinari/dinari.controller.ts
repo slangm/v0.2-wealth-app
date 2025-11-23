@@ -122,6 +122,26 @@ export class DinariController {
     return this.dinariUserService.connectWallet(user.id, checksumParams);
   }
 
+  @Post("wallet/link-server-side")
+  async linkWalletServerSide(
+    @CurrentUser() user: User,
+    @Body() body: { walletAddress: string; chainId?: string; privateKey?: string }
+  ) {
+    // Server-side wallet linking (automatic signing)
+    // This endpoint handles the entire flow: get nonce, sign, connect
+    // Supports three signing methods (in priority order):
+    // 1. privateKey parameter (not recommended for production)
+    // 2. WALLET_PRIVATE_KEY environment variable
+    // 3. CDP_API_KEY_NAME + CDP_API_KEY_PRIVATE_KEY
+    const chainId = body.chainId || "eip155:0";
+    return this.dinariUserService.linkWalletServerSide(
+      user.id,
+      body.walletAddress,
+      chainId,
+      body.privateKey
+    );
+  }
+
   @Post("orders/buy")
   async buyStock(
     @CurrentUser() user: User,
@@ -160,7 +180,11 @@ export class DinariController {
   @Post("orders/prepare")
   async prepareProxiedOrder(
     @CurrentUser() user: User,
-    @Body() body: Omit<PrepareProxiedOrderParams, "accountId" | "chainId">
+    @Body()
+    body: Omit<PrepareProxiedOrderParams, "accountId" | "chainId"> & {
+      amount?: number
+      chainId?: string
+    },
   ) {
     // Get user's Dinari account
     const accountInfo = await this.dinariUserService.getUserAccountInfo(
@@ -173,10 +197,18 @@ export class DinariController {
     }
 
     // Get user's chain ID from stored data (fallback to eip155:0)
-    const chainId = await this.dinariUserService.getUserChainId(user.id);
+    const chainId =
+      body.chainId ||
+      (await this.dinariUserService.getUserChainId(user.id)) ||
+      process.env.DINARI_CHAIN_ID ||
+      "eip155:8453";
 
-    // Convert payment token address to checksum format (required by Dinari API)
-    const checksumPaymentToken = toChecksumAddress(body.paymentToken);
+    // Payment token defaults to Base USDC on sandbox/mainnet unless provided
+    const paymentToken =
+      body.paymentToken ||
+      process.env.DINARI_PAYMENT_TOKEN ||
+      "0x833589fCD6eDb6E08f4c7C32D4f71b54bDA02913";
+    const checksumPaymentToken = toChecksumAddress(paymentToken);
 
     // Use user's account ID and chain ID
     const params: PrepareProxiedOrderParams = {
@@ -184,6 +216,10 @@ export class DinariController {
       accountId: accountInfo.accountId,
       chainId: chainId,
       paymentToken: checksumPaymentToken,
+      paymentTokenQuantity: body.paymentTokenQuantity ?? body.amount,
+      orderSide: body.orderSide || "BUY",
+      orderType: body.orderType || "MARKET",
+      orderTif: body.orderTif || "DAY",
     };
 
     return this.dinariService.prepareProxiedOrder(params);

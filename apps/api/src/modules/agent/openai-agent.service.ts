@@ -1,11 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import {
-  AgentKit,
-  CdpWalletProvider,
-  walletActionProvider,
-  cdpWalletActionProvider,
-} from "@coinbase/agentkit";
-import { getVercelAITools } from "@coinbase/agentkit-vercel-ai-sdk";
 import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { DinariService } from "../dinari/dinari.service";
@@ -21,36 +14,10 @@ type AgentContext = {
 @Injectable()
 export class OpenAIAgentService {
   private readonly logger = new Logger(OpenAIAgentService.name);
-  private readonly agentKitPromise = this.initAgentKit();
   private readonly networkId =
     process.env.GROWTH_NETWORK ?? process.env.AGENT_NETWORK ?? "base-sepolia";
 
   constructor(private readonly dinariService: DinariService) {}
-
-  private async initAgentKit() {
-    const keyName = process.env.CDP_API_KEY_NAME;
-    const privateKey = process.env.CDP_API_KEY_PRIVATE_KEY;
-    if (!keyName || !privateKey) {
-      this.logger.warn(
-        "CDP_API_KEY_NAME / CDP_API_KEY_PRIVATE_KEY not set; running LLM without AgentKit tools."
-      );
-      return null;
-    }
-    const walletProvider = await CdpWalletProvider.configureWithWallet({
-      apiKeyName: keyName,
-      apiKeyPrivateKey: privateKey,
-      networkId: this.networkId,
-    });
-    const cdpConfig = { apiKeyName: keyName, apiKeyPrivateKey: privateKey };
-    const actionProviders = [
-      walletActionProvider(),
-      cdpWalletActionProvider(cdpConfig),
-    ];
-    return AgentKit.from({
-      walletProvider,
-      actionProviders,
-    });
-  }
 
   async generate(context: AgentContext) {
     // Check API key configuration
@@ -65,26 +32,26 @@ export class OpenAIAgentService {
       );
     }
 
-    const agentKit = await this.agentKitPromise;
-    let tools = undefined;
-    if (agentKit) {
-      try {
-        tools = await getVercelAITools(agentKit);
-        // Log tools structure for debugging
-        this.logger.debug(
-          `Tools type: ${typeof tools}, isArray: ${Array.isArray(tools)}, keys: ${tools && typeof tools === "object" ? Object.keys(tools).join(", ") : "N/A"}`
-        );
-        if (tools && typeof tools === "object" && !Array.isArray(tools)) {
-          this.logger.debug(
-            `Tools structure: ${JSON.stringify(Object.keys(tools)).substring(0, 200)}`
-          );
-        }
-      } catch (err) {
-        this.logger.warn(
-          `Failed to initialize AgentKit tools, falling back to text-only: ${String(err)}`
-        );
-      }
+    // [DEBUG] Simple connectivity test to rule out API/Auth issues
+    try {
+      this.logger.debug("🔍 Testing basic OpenAI connectivity...");
+      // Use a very simple prompt and model config
+      const testResult = await generateText({
+        model: openai("gpt-4o") as any,
+        prompt: "Ping",
+      });
+      this.logger.debug(
+        `✅ Connectivity test passed. Response: "${testResult.text}"`
+      );
+    } catch (e) {
+      this.logger.error(`❌ Connectivity test failed: ${e}`);
+      // If basic connectivity fails, the main request will likely fail too.
+      // But we continue to let the main flow handle error reporting.
     }
+
+    // Temporarily disable tool registration to avoid schema issues
+    const tools: undefined = undefined;
+    const toolsAvailable = false;
 
     // Get 3 random Dinari stocks for AI to choose from
     let randomStocksInfo = "";
@@ -123,13 +90,9 @@ export class OpenAIAgentService {
       `You are an onchain AI assistant on network ${this.networkId} (growth).`,
       ``,
       `CRITICAL RULES:`,
-      `1. You MUST ALWAYS respond to user queries with helpful text. Never return empty responses.`,
+      `1. You MUST ALWAYS respond to user queries with helpful text. Never return empty responses. This is MANDATORY.`,
       `2. When user asks to recommend stocks, wants to make money, or asks for investment advice, you MUST recommend a Dinari stock from the list below.`,
-      `3. When recommending stocks, ALWAYS create a buy_stock action with stockSymbol and amount.`,
-      ``,
-      `Available Tools:`,
-      `- walletActionProvider: Get wallet details (address, balance, network). Use when user asks about wallet.`,
-      `- cdpWalletActionProvider: Trade/swap tokens on Polygon.`,
+      `3. When recommending stocks, provide a clear text response with the recommendation.`,
       ``,
       `User's Growth Account Balance: $${growthBalance.toFixed(2)} USD`,
       ``,
@@ -137,27 +100,22 @@ export class OpenAIAgentService {
       `${randomStocksInfo}`,
       ``,
       `MANDATORY: When user asks for stock recommendations, wants to invest, or wants to make money:`,
-      `1. Select ONE stock from the 3 stocks listed above`,
+      `1. Select ONE stock from the available stocks listed above`,
       `2. Recommend an amount (typically $100-$500, or 10-50% of balance)`,
       `3. Format your response EXACTLY as:`,
       `   "You have $${growthBalance.toFixed(2)} in your growth account. I recommend buying $[AMOUNT] worth of [STOCK_SYMBOL]. This represents [PERCENTAGE]% of your growth account balance."`,
       `   Where [PERCENTAGE] = ([AMOUNT] / ${growthBalance.toFixed(2)}) * 100, rounded to 1 decimal place.`,
-      `4. Create a buy_stock action with:`,
-      `   - type: "buy_stock"`,
-      `   - stockSymbol: [STOCK_SYMBOL] (e.g., "AAPL", "SPY", "META")`,
-      `   - amount: [AMOUNT] (number in USD)`,
-      `   - summary: "Buy $[AMOUNT] worth of [STOCK_SYMBOL]"`,
       ``,
       `Example response for "recommend me a stock":`,
       `"You have $${growthBalance.toFixed(2)} in your growth account. I recommend buying $200 worth of AAPL. This represents ${((200 / growthBalance) * 100).toFixed(1)}% of your growth account balance."`,
-      `And create action: {type: "buy_stock", stockSymbol: "AAPL", amount: 200, summary: "Buy $200 worth of AAPL"}`,
       ``,
       `Other Rules:`,
-      `- When user asks to recommend stocks or wants to invest, DO NOT call walletActionProvider first. Directly recommend a stock from the list above.`,
-      `- When user asks ONLY about wallet address (without asking for stock recommendations), use walletActionProvider tool first, then provide the address.`,
+      `- When user asks to recommend stocks or wants to invest, directly recommend a stock from the list above.`,
+      `- When user asks about wallet, provide wallet information if available in context.`,
       `- Keep replies concise and helpful.`,
       `- Respond in the same language the user used.`,
-      `- If tools are unavailable, still provide helpful text responses based on context.`,
+      `- ALWAYS provide a text response, even if you plan to use tools.`,
+      `- If you cannot use tools, still provide helpful text responses based on the context provided.`,
     ].join("\n");
 
     // Log the complete prompt with all dynamic variables
@@ -168,7 +126,7 @@ export class OpenAIAgentService {
     this.logger.log(`   - Network ID: ${this.networkId}`);
     this.logger.log(`   - Growth Balance: $${growthBalance.toFixed(2)} USD`);
     this.logger.log(`   - Random Stocks Count: ${randomStocks.length}`);
-    this.logger.log(`   - Tools Available: ${tools ? "Yes" : "No"}`);
+    this.logger.log(`   - Tools Available: ${toolsAvailable ? "Yes" : "No"}`);
     this.logger.log(
       `   - Random Stocks Info Length: ${randomStocksInfo.length} chars`
     );
@@ -205,38 +163,58 @@ export class OpenAIAgentService {
       this.logger.log(`Model: gpt-4o-mini`);
       this.logger.log(`System message length: ${systemPrompt.length} chars`);
       this.logger.log(`User message: ${userMessage}`);
-      this.logger.log(`Tools: ${tools ? "Yes" : "No"}`);
-      if (tools) {
-        this.logger.log(
-          `Tools count: ${Array.isArray(tools) ? tools.length : Object.keys(tools).length}`
-        );
-      }
+      this.logger.log(`Tools: No`);
       this.logger.log("=".repeat(80));
 
-      // Use standard Vercel AI SDK generateText
-      // According to Vercel AI SDK and Coinbase AgentKit docs:
-      // - model: LanguageModel (from @ai-sdk/openai)
-      // - system: string (system prompt)
-      // - prompt: string (user message)
-      // - tools: object with tool definitions (from getVercelAITools)
-      // - maxTokens: number (max tokens in response)
-      // - maxSteps: number (max tool call steps, required when using tools)
       const generateTextParams: any = {
-        model: openai("gpt-4o-mini"),
+        model: openai("gpt-4o") as any,
         system: systemPrompt,
         prompt: userMessage,
         maxTokens: 1000,
       };
 
-      // Add tools if available (getVercelAITools returns Vercel AI SDK compatible tools)
-      // When using tools, maxSteps is required to allow multi-step tool calls
-      if (tools) {
-        generateTextParams.tools = tools;
-        generateTextParams.maxSteps = 10; // Allow up to 10 tool call steps
-        this.logger.log(`Added tools to generateText call (maxSteps: 10)`);
-      }
+      // Print RAW request parameters BEFORE calling generateText
+      this.logger.log("=".repeat(80));
+      this.logger.log(
+        "🔴 RAW REQUEST TO generateText (before SDK processing):"
+      );
+      this.logger.log("=".repeat(80));
+      this.logger.log(
+        JSON.stringify(
+          {
+            model: "openai('gpt-4o')",
+            system: systemPrompt.substring(0, 200) + "...",
+            prompt: userMessage,
+            maxTokens: 1000,
+            tools: undefined,
+            maxSteps: undefined,
+            hasTools: false,
+          },
+          null,
+          2
+        )
+      );
+      this.logger.log("=".repeat(80));
+
+      // Log the actual generateTextParams that will be sent
+      this.logger.debug(
+        `generateTextParams keys: ${Object.keys(generateTextParams).join(", ")}`
+      );
 
       result = await generateText(generateTextParams);
+
+      // Print RAW response from OpenAI API (from result.response)
+      this.logger.log("=".repeat(80));
+      this.logger.log(
+        "🟢 RAW RESPONSE FROM OpenAI API (original, unprocessed):"
+      );
+      this.logger.log("=".repeat(80));
+      if (result.response) {
+        this.logger.log(JSON.stringify(result.response, null, 2));
+      } else {
+        this.logger.log("No raw response found in result.response");
+      }
+      this.logger.log("=".repeat(80));
 
       this.logger.log("=".repeat(80));
       this.logger.log("📥 OpenAI API Response:");
@@ -247,31 +225,47 @@ export class OpenAIAgentService {
       this.logger.log(`Finish reason: ${result.finishReason}`);
       this.logger.log(`Tool calls: ${result.toolCalls?.length ?? 0}`);
       this.logger.log(`Tool results: ${result.toolResults?.length ?? 0}`);
-      
+
       // Check steps (multi-step tool calls)
       if (result.steps && Array.isArray(result.steps)) {
         this.logger.log(`Steps count: ${result.steps.length}`);
         result.steps.forEach((step: any, idx: number) => {
-          this.logger.log(`Step ${idx}: ${JSON.stringify(step).substring(0, 300)}`);
+          this.logger.log(
+            `Step ${idx}: ${JSON.stringify(step).substring(0, 300)}`
+          );
         });
       }
-      
+
       // Check warnings
-      if (result.warnings && Array.isArray(result.warnings) && result.warnings.length > 0) {
+      if (
+        result.warnings &&
+        Array.isArray(result.warnings) &&
+        result.warnings.length > 0
+      ) {
         this.logger.warn(`Warnings: ${JSON.stringify(result.warnings)}`);
       }
-      
-      // Check request body to see what was actually sent
+
+      // Print RAW request body that was actually sent to OpenAI API
+      this.logger.log("=".repeat(80));
+      this.logger.log("🔴 RAW REQUEST BODY SENT TO OpenAI API:");
+      this.logger.log("=".repeat(80));
       if (result.request?.body) {
-        this.logger.log(`Request body keys: ${Object.keys(result.request.body).join(", ")}`);
-        if (result.request.body.input) {
-          this.logger.log(`Request input (first 500 chars): ${JSON.stringify(result.request.body.input).substring(0, 500)}`);
+        // Print the full request body, but truncate very long content
+        const requestBodyCopy = JSON.parse(JSON.stringify(result.request.body));
+        if (requestBodyCopy.input && Array.isArray(requestBodyCopy.input)) {
+          requestBodyCopy.input = requestBodyCopy.input.map((msg: any) => {
+            if (msg.content && msg.content.length > 500) {
+              return { ...msg, content: msg.content.substring(0, 500) + "..." };
+            }
+            return msg;
+          });
         }
-        if (result.request.body.messages) {
-          this.logger.log(`Request messages count: ${Array.isArray(result.request.body.messages) ? result.request.body.messages.length : 'N/A'}`);
-        }
+        this.logger.log(JSON.stringify(requestBodyCopy, null, 2));
+      } else {
+        this.logger.log("No request body found in result.request.body");
       }
-      
+      this.logger.log("=".repeat(80));
+
       if (result.usage) {
         this.logger.log(`Usage: ${JSON.stringify(result.usage)}`);
       }
@@ -305,26 +299,21 @@ export class OpenAIAgentService {
     // Extract text from result
     // When using tools with maxSteps, text might be in the last step
     let resultText = result.text?.trim() ?? "";
-    
+
     // If text is empty but we have steps, try to extract from the last step
-    if (!resultText && result.steps && Array.isArray(result.steps) && result.steps.length > 0) {
+    if (
+      !resultText &&
+      result.steps &&
+      Array.isArray(result.steps) &&
+      result.steps.length > 0
+    ) {
       const lastStep = result.steps[result.steps.length - 1];
       if (lastStep.text) {
         resultText = lastStep.text.trim();
-        this.logger.debug(`Extracted text from last step: ${resultText.substring(0, 100)}`);
+        this.logger.debug(
+          `Extracted text from last step: ${resultText.substring(0, 100)}`
+        );
       }
-    }
-    
-    const toolResultsCount = result.toolResults?.length ?? 0;
-    const toolCallsCount = result.toolCalls?.length ?? 0;
-    this.logger.debug(
-      `LLM result: text=${resultText.substring(0, 100)}${resultText.length > 100 ? "..." : ""}, textLength=${resultText.length}, toolCalls=${toolCallsCount}, toolResults=${toolResultsCount}`
-    );
-
-    if (!resultText && toolResultsCount === 0) {
-      this.logger.warn(
-        `⚠️ LLM returned empty response! Full result: ${JSON.stringify(result).substring(0, 500)}`
-      );
     }
 
     const toolResults = result.toolResults ?? [];
@@ -335,6 +324,46 @@ export class OpenAIAgentService {
       stockSymbol?: string;
       amount?: number;
     }> = [];
+
+    const toolResultsCount = toolResults.length;
+    const toolCallsCount = result.toolCalls?.length ?? 0;
+    this.logger.debug(
+      `LLM result: text=${resultText.substring(0, 100)}${resultText.length > 100 ? "..." : ""}, textLength=${resultText.length}, toolCalls=${toolCallsCount}, toolResults=${toolResultsCount}`
+    );
+
+    if (!resultText && toolResultsCount === 0) {
+      this.logger.warn(
+        `⚠️ LLM returned empty response! Full result: ${JSON.stringify(result).substring(0, 500)}`
+      );
+
+      // Generate a fallback stock recommendation if the user asked about stocks
+      if (
+        userMessage.toLowerCase().includes("stock") &&
+        randomStocks.length > 0
+      ) {
+        const selectedStock =
+          randomStocks[Math.floor(Math.random() * randomStocks.length)];
+        const amount = Math.min(
+          500,
+          Math.max(100, Math.floor(growthBalance * 0.2))
+        );
+        const percentage = ((amount / growthBalance) * 100).toFixed(1);
+        resultText = `You have $${growthBalance.toFixed(
+          2
+        )} in your growth account. I recommend buying $${amount} worth of ${
+          selectedStock.symbol
+        }. This represents ${percentage}% of your growth account balance.`;
+        toolActions.push({
+          type: "buy_stock",
+          summary: `Buy $${amount} of ${selectedStock.symbol} (fallback)`,
+          stockSymbol: selectedStock.symbol,
+          amount,
+        });
+        this.logger.debug(
+          `Generated fallback stock recommendation: ${resultText}`
+        );
+      }
+    }
 
     for (const tr of toolResults) {
       const name = tr.toolName ?? tr.toolId ?? "tool";
@@ -368,15 +397,56 @@ export class OpenAIAgentService {
     // Ensure we always have a reply
     let reply = replyText;
     if (!reply || reply.trim() === "") {
+      // Fallback 1: tool summaries / actions
       if (toolSummaries.length > 0) {
         reply = `Tools executed:\n${toolSummaries.join("\n")}`;
       } else if (toolActions.length > 0) {
-        // If we have actions but no text, create a reply from actions
         reply = toolActions.map((a) => a.summary).join(". ");
       } else {
-        // Fallback: provide a helpful default response
-        reply =
-          "I understand your request. How can I help you with your portfolio today?";
+        // Fallback 2: direct OpenAI chat completion with minimal prompt
+        try {
+          const chatResp = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.OPENAI_API_KEY ?? ""}`,
+              },
+              body: JSON.stringify({
+                model: "gpt-4o",
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "You are an onchain AI assistant. Always answer with non-empty text.",
+                  },
+                  { role: "user", content: userMessage },
+                ],
+                max_tokens: 200,
+              }),
+            }
+          );
+          if (chatResp.ok) {
+            const chatJson: any = await chatResp.json();
+            reply = chatJson?.choices?.[0]?.message?.content ?? "";
+            this.logger.debug(
+              `Fallback chat completion reply length=${reply.length}`
+            );
+          } else {
+            this.logger.warn(
+              `Fallback chat completion failed: status ${chatResp.status}`
+            );
+          }
+        } catch (err) {
+          this.logger.warn(`Fallback chat completion error: ${err}`);
+        }
+
+        // Fallback 3: default text
+        if (!reply || reply.trim() === "") {
+          reply =
+            "I understand your request. How can I help you with your portfolio today?";
+        }
       }
     }
 

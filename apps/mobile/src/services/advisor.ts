@@ -6,7 +6,7 @@ export type AdvisorMessage = {
   role: "user" | "assistant"
   content: string
   createdAt: string
-  actions?: Array<{ summary: string; type?: string; simulationOnly?: boolean }>
+  actions?: Array<{ summary: string; type?: string; simulationOnly?: boolean; preparedId?: string }>
 }
 
 const seedMessages: AdvisorMessage[] = [
